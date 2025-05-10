@@ -40,7 +40,7 @@ Este proyecto implementa un **servidor FHIR** utilizando **Spring Boot** y **HAP
 ```
 src/
 ├── config/
-│   └── FhirServerConfig.java       # Configuración general del servidor FHIR
+│   └── com.serverfhir.config.FhirServerConfig.java       # Configuración general del servidor FHIR
 ├── provider/
 │   └── PatientResourceProvider.java # Ejemplo de ResourceProvider para el recurso Patient
 ├── FhirServerApplication.java       # Clase principal
