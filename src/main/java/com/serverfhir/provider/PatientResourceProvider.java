@@ -2,6 +2,7 @@ package com.serverfhir.provider;
 
 import ca.uhn.fhir.rest.annotation.IdParam;
 import ca.uhn.fhir.rest.annotation.Read;
+import ca.uhn.fhir.rest.annotation.ResourceParam;
 import ca.uhn.fhir.rest.server.IResourceProvider;
 import org.hl7.fhir.r5.model.Patient;
 import org.hl7.fhir.r5.model.IdType;
@@ -89,10 +90,10 @@ public class PatientResourceProvider implements IResourceProvider{
     }
 
     @Create
-    public MethodOutcome createPatient(Patient patient) {
+    public MethodOutcome createPatient(@ResourceParam Patient patient) {
         RestTemplate restTemplate = new RestTemplate();
 
-        String nombre = patient.getNameFirstRep().getGiven().size() > 0
+        String nombre = !patient.getNameFirstRep().getGiven().isEmpty()
                 ? patient.getNameFirstRep().getGiven().get(0).getValue()
                 : "";
         String segundoNombre = patient.getNameFirstRep().getGiven().size() > 1
