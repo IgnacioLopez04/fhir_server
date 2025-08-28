@@ -80,13 +80,13 @@ public class PatientResourceProvider implements IResourceProvider{
                         .setValue((String) data.get("telefono"));
             }
 
-            // Falta agregar la direccion del paciente, pero no viene en el llamado al back
-
-            // Extensiones personalizadas
-            addExtension(patient, "id_barrio", data);
-            addExtension(patient, "id_calle", data);
-            addExtension(patient, "numero_calle", data);
-            addExtension(patient, "id_codigo_postal", data);
+            // Extensiones personalizadas para los nuevos campos
+            addExtension(patient, "id_ciudad", data);
+            addExtension(patient, "barrio", data);
+            addExtension(patient, "calle", data);
+            addExtension(patient, "id_prestacion", data);
+            addExtension(patient, "piso_departamento", data);
+            addExtension(patient, "inactivo", data);
 
             return patient;
 
@@ -152,6 +152,9 @@ public class PatientResourceProvider implements IResourceProvider{
             }
         }
 
+        // Procesar extensiones para los nuevos campos
+        processExtensions(patient, payload);
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         
@@ -180,4 +183,22 @@ public class PatientResourceProvider implements IResourceProvider{
         }
     }
 
+    private void processExtensions(Patient patient, Map<String, Object> payload) {
+        if (patient.hasExtension()) {
+            for (Extension extension : patient.getExtension()) {
+                String url = extension.getUrl();
+                if (url.contains("id_ciudad")) {
+                    payload.put("id_ciudad", extension.getValue().toString());
+                } else if (url.contains("barrio")) {
+                    payload.put("barrio", extension.getValue().toString());
+                } else if (url.contains("calle")) {
+                    payload.put("calle", extension.getValue().toString());
+                } else if (url.contains("id_prestacion")) {
+                    payload.put("id_prestacion", extension.getValue().toString());
+                } else if (url.contains("piso_departamento")) {
+                    payload.put("piso_departamento", extension.getValue().toString());
+                }
+            }
+        }
+    }
 }
