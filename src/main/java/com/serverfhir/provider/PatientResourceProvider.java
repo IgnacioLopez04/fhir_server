@@ -3,6 +3,7 @@ package com.serverfhir.provider;
 import ca.uhn.fhir.rest.annotation.IdParam;
 import ca.uhn.fhir.rest.annotation.Read;
 import ca.uhn.fhir.rest.annotation.ResourceParam;
+import ca.uhn.fhir.rest.annotation.Search;
 import ca.uhn.fhir.rest.server.IResourceProvider;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import org.hl7.fhir.r5.model.Patient;
@@ -12,6 +13,8 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 import org.hl7.fhir.r5.model.ContactPoint;
 import org.hl7.fhir.r5.model.Extension;
 import org.hl7.fhir.r5.model.StringType;
@@ -25,6 +28,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Component
 public class PatientResourceProvider implements IResourceProvider{
@@ -68,25 +72,13 @@ public class PatientResourceProvider implements IResourceProvider{
                     .setFamily((String) data.get("apellido"))
                     .addGiven((String) data.get("nombre"));
 
-            // Fecha de nacimiento
-            if (data.get("fecha_nacimiento") != null) {
-                patient.setBirthDate(java.sql.Date.valueOf(((String) data.get("fecha_nacimiento")).substring(0, 10)));
+            // Prestación como extensión personalizada
+            if (data.get("prestacion") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor/fhir/StructureDefinition/prestacion",
+                        new StringType(String.valueOf(data.get("prestacion"))))
+                );
             }
-
-            // Teléfono
-            if (data.get("telefono") != null) {
-                patient.addTelecom()
-                        .setSystem(ContactPoint.ContactPointSystem.PHONE)
-                        .setValue((String) data.get("telefono"));
-            }
-
-            // Extensiones personalizadas para los nuevos campos
-            addExtension(patient, "id_ciudad", data);
-            addExtension(patient, "barrio", data);
-            addExtension(patient, "calle", data);
-            addExtension(patient, "id_prestacion", data);
-            addExtension(patient, "piso_departamento", data);
-            addExtension(patient, "inactivo", data);
 
             return patient;
 
@@ -95,11 +87,71 @@ public class PatientResourceProvider implements IResourceProvider{
         }
     }
 
-    private void addExtension(Patient patient, String field, Map data) {
-        if (data.get(field) != null) {
-            patient.addExtension(
-                    new Extension("http://mi-servidor/fhir/StructureDefinition/" + field,
-                            new StringType(String.valueOf(data.get(field))))
+    @Search
+    public List<Patient> searchPatients(RequestDetails requestDetails) {
+        // Validación de token ya se hace en el interceptor
+        RestTemplate restTemplate = new RestTemplate();
+
+        // Obtener el token del contexto de la petición
+        String token = requestDetails.getHeader("Authorization");
+
+        String url = "http://localhost:3000/api/patient";
+        
+        // Crear headers con el token de autorización
+        HttpHeaders headers = new HttpHeaders();
+        if (token != null && !token.isEmpty()) {
+            headers.set("Authorization", token);
+        }
+
+        try {
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<List> response = restTemplate.exchange(
+                url, 
+                org.springframework.http.HttpMethod.GET, 
+                entity, 
+                List.class
+            );
+            
+            @SuppressWarnings("unchecked")
+            List<Map> patientsData = (List<Map>) response.getBody();
+            List<Patient> patients = new ArrayList<>();
+
+            if (patientsData != null) {
+                for (Map data : patientsData) {
+                    Patient patient = new Patient();
+                    
+                                         // ID del paciente (DNI)
+                     String dni = (String) data.get("dni_paciente");
+                     if (dni != null) {
+                         patient.setId(dni);
+                         patient.addIdentifier().setValue(dni);
+                     }
+
+                     // Nombre y apellido
+                     if (data.get("nombre") != null && data.get("apellido") != null) {
+                         patient.addName()
+                                 .setFamily((String) data.get("apellido"))
+                                 .addGiven((String) data.get("nombre"));
+                     }
+
+                     // Prestación como extensión personalizada
+                     if (data.get("prestacion") != null) {
+                         patient.addExtension(
+                             new Extension("http://mi-servidor/fhir/StructureDefinition/prestacion",
+                                 new StringType(String.valueOf(data.get("prestacion"))))
+                         );
+                     }
+
+                    patients.add(patient);
+                }
+            }
+
+            return patients;
+
+        } catch (Exception e) {
+            logger.error("Error al obtener la lista de pacientes: " + e.getMessage(), e);
+            throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                "No se pudieron obtener los pacientes: " + e.getMessage()
             );
         }
     }
@@ -155,6 +207,34 @@ public class PatientResourceProvider implements IResourceProvider{
         // Procesar extensiones para los nuevos campos
         processExtensions(patient, payload);
 
+        // Procesar tutores si existen
+        if (patient.hasExtension()) {
+            List<Map<String, Object>> tutores = new ArrayList<>();
+            for (Extension extension : patient.getExtension()) {
+                if (extension.getUrl().contains("tutores")) {
+                    // La extensión de tutores contiene un JSON stringificado
+                    try {
+                        String tutoresJson = extension.getValue().toString();
+                        logger.info("JSON de tutores recibido: " + tutoresJson);
+                        
+                        // Parsear el JSON de tutores
+                        ObjectMapper mapper = new ObjectMapper();
+                        List<Map<String, Object>> tutoresList = mapper.readValue(tutoresJson, List.class);
+                        payload.put("tutores", tutoresList);
+                        logger.info("Tutores procesados exitosamente: " + tutoresList.size());
+                        logger.info("Datos de tutores: " + tutoresList.toString());
+                    } catch (Exception e) {
+                        logger.error("Error al procesar tutores: " + e.getMessage(), e);
+                        payload.put("tutores", new ArrayList<>());
+                    }
+                    break;
+                }
+            }
+        }
+        
+        // Log del payload final
+        logger.info("Payload final enviado al backend: " + payload.toString());
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         
@@ -201,4 +281,6 @@ public class PatientResourceProvider implements IResourceProvider{
             }
         }
     }
+
+
 }
