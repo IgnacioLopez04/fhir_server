@@ -15,7 +15,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
-import org.hl7.fhir.r5.model.ContactPoint;
 import org.hl7.fhir.r5.model.Extension;
 import org.hl7.fhir.r5.model.StringType;
 import org.hl7.fhir.r5.model.Identifier;
@@ -43,15 +42,15 @@ public class PatientResourceProvider implements IResourceProvider{
     @Read
     public Patient read(@IdParam IdType id, RequestDetails requestDetails) {
         // Validación de token ya se hace en el interceptor
-        String dni = id.getIdPart();
+        String hashId = id.getIdPart();
         RestTemplate restTemplate = new RestTemplate();
 
         // Obtener el token del contexto de la petición
         String token = requestDetails.getHeader("Authorization");
         
-        String url = "http://localhost:3000/api/patient/{dni}";
+        String url = "http://localhost:3000/api/patient/{hash_id}";
         Map<String, String> params = new HashMap<>();
-        params.put("dni", dni);
+        params.put("hash_id", hashId);
 
         // Crear headers con el token de autorización
         HttpHeaders headers = new HttpHeaders();
@@ -65,12 +64,27 @@ public class PatientResourceProvider implements IResourceProvider{
             Map data = response.getBody();
 
             Patient patient = new Patient();
-            patient.setId(dni);
-            patient.addIdentifier().setValue(dni);
+            patient.setId(hashId);
+            patient.addIdentifier().setValue(hashId);
+
+            // Agregar DNI como identificador separado si existe
+            if (data.get("dni_paciente") != null) {
+                patient.addIdentifier()
+                    .setSystem("http://mi-servidor.com/fhir/dni")
+                    .setValue((String) data.get("dni_paciente"));
+            }
 
             patient.addName()
                     .setFamily((String) data.get("apellido"))
                     .addGiven((String) data.get("nombre"));
+
+            // Hash ID como extensión personalizada
+            if (data.get("hash_id") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor/fhir/StructureDefinition/hash-id",
+                        new StringType(String.valueOf(data.get("hash_id"))))
+                );
+            }
 
             // Prestación como extensión personalizada
             if (data.get("prestacion") != null) {
@@ -83,7 +97,7 @@ public class PatientResourceProvider implements IResourceProvider{
             return patient;
 
         } catch (Exception e) {
-            throw new ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException("Paciente no encontrado: " + dni);
+            throw new ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException("Paciente no encontrado: " + hashId);
         }
     }
 
@@ -120,18 +134,33 @@ public class PatientResourceProvider implements IResourceProvider{
                 for (Map data : patientsData) {
                     Patient patient = new Patient();
                     
-                                         // ID del paciente (DNI)
-                     String dni = (String) data.get("dni_paciente");
-                     if (dni != null) {
-                         patient.setId(dni);
-                         patient.addIdentifier().setValue(dni);
-                     }
+                    // ID del paciente (hash_id)
+                    String hashId = (String) data.get("hash_id");
+                    if (hashId != null) {
+                        patient.setId(hashId);
+                        patient.addIdentifier().setValue(hashId);
+                    }
+
+                    // Agregar DNI como identificador separado si existe
+                    if (data.get("dni_paciente") != null) {
+                        patient.addIdentifier()
+                            .setSystem("http://mi-servidor.com/fhir/dni")
+                            .setValue((String) data.get("dni_paciente"));
+                    }
 
                      // Nombre y apellido
                      if (data.get("nombre") != null && data.get("apellido") != null) {
                          patient.addName()
                                  .setFamily((String) data.get("apellido"))
                                  .addGiven((String) data.get("nombre"));
+                     }
+
+                     // Hash ID como extensión personalizada
+                     if (data.get("hash_id") != null) {
+                         patient.addExtension(
+                             new Extension("http://mi-servidor/fhir/StructureDefinition/hash-id",
+                                 new StringType(String.valueOf(data.get("hash_id"))))
+                         );
                      }
 
                      // Prestación como extensión personalizada
