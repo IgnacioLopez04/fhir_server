@@ -6,6 +6,7 @@ import ca.uhn.fhir.rest.server.RestfulServer;
 import com.serverfhir.provider.PatientResourceProvider;
 import com.serverfhir.provider.AbmResourceProvider;
 import com.serverfhir.provider.OrganizationResourceProvider;
+import com.serverfhir.provider.ReportResourceProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import java.util.List;
@@ -21,6 +22,9 @@ public class FhirServerConfig extends RestfulServer{
     @Autowired
     private OrganizationResourceProvider organizationResourceProvider;
 
+    @Autowired
+    private ReportResourceProvider reportResourceProvider;
+
     @Override
     protected void initialize() {
         // Configuración básica de FHIR
@@ -29,6 +33,7 @@ public class FhirServerConfig extends RestfulServer{
         setDefaultResponseEncoding(EncodingEnum.JSON);
         
         // Registrar proveedores de recursos
-        setResourceProviders(List.of(patientResourceProvider, abmResourceProvider, organizationResourceProvider));
+        setResourceProviders(List.of(patientResourceProvider, abmResourceProvider, organizationResourceProvider,
+                reportResourceProvider));
     }
 }
