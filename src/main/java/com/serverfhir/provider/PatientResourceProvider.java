@@ -85,6 +85,12 @@ public class PatientResourceProvider implements IResourceProvider{
                         new StringType(String.valueOf(data.get("hash_id"))))
                 );
             }
+            if (data.get("hash_id_ehr") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor/fhir/StructureDefinition/hash-id-ehr",
+                        new StringType(String.valueOf(data.get("hash_id_ehr"))))
+                );
+            }
 
             // Prestación como extensión personalizada
             if (data.get("prestacion") != null) {
