@@ -10,7 +10,6 @@ import ca.uhn.fhir.rest.annotation.RequiredParam;
 import org.hl7.fhir.r5.model.Organization;
 import org.hl7.fhir.r5.model.IdType;
 import org.hl7.fhir.r5.model.CodeableConcept;
-import org.hl7.fhir.r5.model.Coding;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;

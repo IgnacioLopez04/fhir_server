@@ -1,11 +1,13 @@
 package com.serverfhir.provider;
 
 import ca.uhn.fhir.rest.annotation.Create;
+import ca.uhn.fhir.rest.annotation.Operation;
 import ca.uhn.fhir.rest.annotation.IdParam;
 import ca.uhn.fhir.rest.annotation.Read;
 import ca.uhn.fhir.rest.annotation.Search;
 import ca.uhn.fhir.rest.annotation.ResourceParam;
 import ca.uhn.fhir.rest.annotation.OptionalParam;
+import ca.uhn.fhir.rest.annotation.OperationParam;
 import ca.uhn.fhir.rest.param.StringParam;
 import ca.uhn.fhir.rest.server.IResourceProvider;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
@@ -15,10 +17,12 @@ import org.hl7.fhir.r5.model.IdType;
 import org.hl7.fhir.r5.model.CodeableConcept;
 import org.hl7.fhir.r5.model.ResourceType;
 import org.hl7.fhir.r5.model.Extension;
-import org.hl7.fhir.r5.model.Attachment;
 import org.hl7.fhir.r5.model.Reference;
+import org.hl7.fhir.r5.model.Bundle;
+import org.hl7.fhir.r5.model.Bundle.BundleType;
 import org.hl7.fhir.r5.model.DateTimeType;
 import org.springframework.stereotype.Component;
+import org.hl7.fhir.r5.model.StringType;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpEntity;
@@ -65,6 +69,24 @@ public class ReportResourceProvider implements IResourceProvider {
             // Es un reporte normal, procesar como tal
             return createNormalReport(diagnosticReport, requestDetails);
         }
+    }
+
+    // Custom operation to explicitly create a normal report via a distinct endpoint:
+    // POST /fhir/DiagnosticReport/$create-report
+    @Operation(name = "$create-report", type = DiagnosticReport.class)
+    public MethodOutcome createReportOperation(
+            @ResourceParam DiagnosticReport diagnosticReport,
+            RequestDetails requestDetails) {
+        return createNormalReport(diagnosticReport, requestDetails);
+    }
+
+    // Custom operation to explicitly create an annex/comment via a distinct endpoint:
+    // POST /fhir/DiagnosticReport/$create-annex
+    @Operation(name = "$create-annex", type = DiagnosticReport.class)
+    public MethodOutcome createAnnexOperation(
+            @ResourceParam DiagnosticReport diagnosticReport,
+            RequestDetails requestDetails) {
+        return createAnnex(diagnosticReport, requestDetails);
     }
 
     private MethodOutcome createNormalReport(DiagnosticReport diagnosticReport, RequestDetails requestDetails) {
@@ -372,6 +394,24 @@ public class ReportResourceProvider implements IResourceProvider {
         }
     }
 
+    // Custom operation to list reports by patient via a distinct endpoint:
+    // GET /fhir/DiagnosticReport/$list-reports?patient={hashId}
+    @Operation(name = "$list-reports", idempotent = true, type = DiagnosticReport.class)
+    public Bundle listReportsOperation(
+            @OperationParam(name = "patient") StringType patientHashId,
+            RequestDetails requestDetails) {
+        StringParam sp = (patientHashId != null && patientHashId.hasValue())
+                ? new StringParam(patientHashId.getValue())
+                : null;
+        List<DiagnosticReport> reports = searchReports(sp, requestDetails);
+        Bundle bundle = new Bundle();
+        bundle.setType(BundleType.SEARCHSET);
+        for (DiagnosticReport dr : reports) {
+            bundle.addEntry().setResource(dr);
+        }
+        return bundle;
+    }
+
     @Search
     public List<DiagnosticReport> searchReportAnnexes(
             @OptionalParam(name = "annex") StringParam reportHashId,
@@ -671,6 +711,7 @@ public class ReportResourceProvider implements IResourceProvider {
 
         if (report.containsKey("apellido_usuario") && report.get("apellido_usuario") != null) {
             Extension userLastNameExtension = new Extension();
+            userLastNameExtension.setUrl("http://example.org/fhir/StructureDefinition/user-lastname");
             userLastNameExtension
                     .setValue(new org.hl7.fhir.r5.model.StringType(report.get("apellido_usuario").toString()));
             diagnosticReport.addExtension(userLastNameExtension);
