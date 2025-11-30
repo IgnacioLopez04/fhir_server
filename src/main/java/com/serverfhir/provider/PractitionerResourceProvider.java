@@ -2,9 +2,12 @@ package com.serverfhir.provider;
 
 import ca.uhn.fhir.rest.annotation.IdParam;
 import ca.uhn.fhir.rest.annotation.Read;
+import ca.uhn.fhir.rest.annotation.ResourceParam;
 import ca.uhn.fhir.rest.annotation.Search;
+import ca.uhn.fhir.rest.annotation.Update;
 import ca.uhn.fhir.rest.server.IResourceProvider;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
+import ca.uhn.fhir.rest.api.MethodOutcome;
 import org.hl7.fhir.r5.model.Practitioner;
 import org.hl7.fhir.r5.model.IdType;
 import org.hl7.fhir.r5.model.Extension;
@@ -127,6 +130,57 @@ public class PractitionerResourceProvider implements IResourceProvider {
             logger.error("Error al obtener el usuario: " + e.getMessage(), e);
             throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
                 "No se pudo obtener el usuario: " + e.getMessage()
+            );
+        }
+    }
+
+    @Update
+    public MethodOutcome updatePractitioner(@IdParam IdType id, @ResourceParam Practitioner practitioner, RequestDetails requestDetails) {
+        String hashId = id.getIdPart();
+        boolean active = practitioner.getActive();
+        logger.info("Actualizando estado del usuario con hash_id: " + hashId + ", active: " + active);
+
+        try {
+            String token = requestDetails.getHeader("Authorization");
+            RestTemplate restTemplate = new RestTemplate();
+
+            HttpHeaders headers = new HttpHeaders();
+            if (token != null && !token.isEmpty()) {
+                headers.set("Authorization", token);
+            }
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response;
+
+            if (active) {
+                // Activar usuario
+                logger.info("Activando usuario: " + hashId);
+                response = restTemplate.exchange(
+                    BASE_URL + "/user/activate/" + hashId,
+                    HttpMethod.PUT,
+                    entity,
+                    String.class
+                );
+            } else {
+                // Bloquear usuario
+                logger.info("Bloqueando usuario: " + hashId);
+                response = restTemplate.exchange(
+                    BASE_URL + "/user/" + hashId,
+                    HttpMethod.DELETE,
+                    entity,
+                    String.class
+                );
+            }
+
+            logger.info("Usuario actualizado exitosamente: " + hashId);
+            MethodOutcome outcome = new MethodOutcome();
+            outcome.setId(new IdType("Practitioner", hashId));
+            return outcome;
+
+        } catch (Exception e) {
+            logger.error("Error al actualizar el usuario: " + e.getMessage(), e);
+            throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                "No se pudo actualizar el usuario: " + e.getMessage()
             );
         }
     }
