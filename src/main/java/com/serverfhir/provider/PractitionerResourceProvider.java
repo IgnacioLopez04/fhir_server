@@ -19,11 +19,14 @@ import org.hl7.fhir.r5.model.HumanName;
 import org.hl7.fhir.r5.model.DateType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import com.serverfhir.util.BackendErrorHandler;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
@@ -78,6 +81,9 @@ public class PractitionerResourceProvider implements IResourceProvider {
 
             return practitioners;
 
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            BackendErrorHandler.handleHttpException(e);
+            return null; // Nunca se ejecutará, pero necesario para compilación
         } catch (Exception e) {
             logger.error("Error al obtener la lista de usuarios: " + e.getMessage(), e);
             throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
@@ -129,6 +135,9 @@ public class PractitionerResourceProvider implements IResourceProvider {
 
         } catch (ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException e) {
             throw e;
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            BackendErrorHandler.handleHttpException(e);
+            return null; // Nunca se ejecutará, pero necesario para compilación
         } catch (Exception e) {
             logger.error("Error al obtener el usuario: " + e.getMessage(), e);
             throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
@@ -180,6 +189,9 @@ public class PractitionerResourceProvider implements IResourceProvider {
             outcome.setId(new IdType("Practitioner", hashId));
             return outcome;
 
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            BackendErrorHandler.handleHttpException(e);
+            return null; // Nunca se ejecutará, pero necesario para compilación
         } catch (Exception e) {
             logger.error("Error al actualizar el usuario: " + e.getMessage(), e);
             throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
@@ -342,7 +354,6 @@ public class PractitionerResourceProvider implements IResourceProvider {
                 
                 if (hashId == null) {
                     logger.warn("No se pudo obtener el hash_id del usuario creado");
-                    // Crear un hash_id temporal o lanzar excepción
                     throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
                         "Usuario creado pero no se pudo obtener el hash_id"
                     );
@@ -354,14 +365,22 @@ public class PractitionerResourceProvider implements IResourceProvider {
                 outcome.setCreated(true);
                 return outcome;
             } else {
+                // Este caso no debería ocurrir normalmente porque RestTemplate lanza excepciones
+                // para códigos de error, pero el compilador requiere que todos los caminos retornen
                 throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
-                    "Error al crear el usuario en el backend. Código: " + response.getStatusCode()
+                    "Error inesperado: código de estado no exitoso sin excepción"
                 );
             }
 
         } catch (IllegalArgumentException e) {
             logger.error("Error de validación al crear usuario: " + e.getMessage());
             throw new ca.uhn.fhir.rest.server.exceptions.InvalidRequestException(e.getMessage());
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            BackendErrorHandler.handleHttpException(e);
+            // handleHttpException siempre lanza una excepción, este código nunca se ejecuta
+            throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                "Error al procesar respuesta del backend"
+            );
         } catch (Exception e) {
             logger.error("Error al crear el usuario: " + e.getMessage(), e);
             throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
@@ -455,4 +474,3 @@ public class PractitionerResourceProvider implements IResourceProvider {
         return practitioner;
     }
 }
-
