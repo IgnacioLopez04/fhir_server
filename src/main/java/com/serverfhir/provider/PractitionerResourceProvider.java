@@ -1,5 +1,6 @@
 package com.serverfhir.provider;
 
+import ca.uhn.fhir.rest.annotation.Create;
 import ca.uhn.fhir.rest.annotation.IdParam;
 import ca.uhn.fhir.rest.annotation.Read;
 import ca.uhn.fhir.rest.annotation.ResourceParam;
@@ -22,9 +23,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Date;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -181,6 +184,188 @@ public class PractitionerResourceProvider implements IResourceProvider {
             logger.error("Error al actualizar el usuario: " + e.getMessage(), e);
             throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
                 "No se pudo actualizar el usuario: " + e.getMessage()
+            );
+        }
+    }
+
+    @Create
+    public MethodOutcome createPractitioner(@ResourceParam Practitioner practitioner, RequestDetails requestDetails) {
+        logger.info("Creando nuevo usuario (Practitioner)");
+
+        try {
+            // Extraer datos del recurso Practitioner FHIR
+            String dni = null;
+            String nombre = null;
+            String apellido = null;
+            String email = null;
+            String fechaNacimiento = null;
+            String idTipoUsuario = null;
+
+            // Extraer DNI de identifiers
+            if (practitioner.hasIdentifier()) {
+                for (Identifier identifier : practitioner.getIdentifier()) {
+                    if ("http://mi-servidor.com/fhir/dni".equals(identifier.getSystem())) {
+                        dni = identifier.getValue();
+                        break;
+                    }
+                }
+            }
+
+            // Extraer nombre y apellido
+            if (practitioner.hasName() && practitioner.getName().size() > 0) {
+                HumanName name = practitioner.getNameFirstRep();
+                if (name.hasGiven()) {
+                    nombre = name.getGivenAsSingleString();
+                }
+                if (name.hasFamily()) {
+                    apellido = name.getFamily();
+                }
+            }
+
+            // Extraer email de telecom
+            if (practitioner.hasTelecom()) {
+                for (ContactPoint telecom : practitioner.getTelecom()) {
+                    if (telecom.getSystem() == ContactPoint.ContactPointSystem.EMAIL) {
+                        email = telecom.getValue();
+                        break;
+                    }
+                }
+            }
+
+            // Extraer fecha de nacimiento
+            if (practitioner.hasBirthDateElement()) {
+                fechaNacimiento = practitioner.getBirthDateElement().getValueAsString();
+            }
+
+            // Extraer id_tipo_usuario de extensiones
+            Extension tipoUsuarioExt = practitioner.getExtensionByUrl(
+                "http://mi-servidor/fhir/StructureDefinition/id-tipo-usuario"
+            );
+            if (tipoUsuarioExt != null && tipoUsuarioExt.hasValue()) {
+                if (tipoUsuarioExt.getValue() instanceof StringType) {
+                    idTipoUsuario = ((StringType) tipoUsuarioExt.getValue()).getValue();
+                } else {
+                    idTipoUsuario = tipoUsuarioExt.getValue().toString();
+                }
+            }
+
+            // Validar campos requeridos
+            if (dni == null || dni.isEmpty()) {
+                throw new IllegalArgumentException("El DNI es obligatorio para crear un usuario");
+            }
+            if (fechaNacimiento == null || fechaNacimiento.isEmpty()) {
+                throw new IllegalArgumentException("La fecha de nacimiento es obligatoria para crear un usuario");
+            }
+
+            // Construir payload para el backend
+            Map<String, Object> userData = new HashMap<>();
+            if (dni != null) {
+                userData.put("dni_usuario", dni);
+            }
+            if (nombre != null) {
+                userData.put("nombre_usuario", nombre);
+            }
+            if (apellido != null) {
+                userData.put("apellido_usuario", apellido);
+            }
+            if (email != null) {
+                userData.put("email", email);
+            }
+            if (fechaNacimiento != null) {
+                userData.put("fecha_nacimiento", fechaNacimiento);
+            }
+            if (idTipoUsuario != null) {
+                userData.put("id_tipo_usuario", idTipoUsuario);
+            }
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("user", userData);
+
+            // Preparar headers y hacer POST al backend
+            String token = requestDetails.getHeader("Authorization");
+            RestTemplate restTemplate = new RestTemplate();
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            if (token != null && !token.isEmpty()) {
+                headers.set("Authorization", token);
+            }
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
+            logger.info("Enviando datos al backend para crear usuario: " + payload);
+
+            @SuppressWarnings("unchecked")
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE_URL + "/user/create",
+                HttpMethod.POST,
+                entity,
+                (Class<Map<String, Object>>) (Class<?>) Map.class
+            );
+
+            // Manejar respuesta del backend
+            String hashId = null;
+            if (response.getStatusCode().is2xxSuccessful()) {
+                Map<String, Object> responseBody = response.getBody();
+                
+                // Si el usuario ya existía, el backend retorna el usuario existente
+                if (responseBody != null && responseBody.containsKey("hash_id")) {
+                    hashId = responseBody.get("hash_id").toString();
+                } else if (responseBody != null && responseBody.containsKey("message")) {
+                    // Si se creó exitosamente, necesitamos obtener el hash_id
+                    // El backend genera el hash_id con createHashId(dni + fecha_nacimiento)
+                    // Podemos obtener el usuario recién creado consultando por DNI
+                    logger.info("Usuario creado exitosamente, obteniendo hash_id...");
+                    
+                    // Consultar el usuario por DNI para obtener el hash_id
+                    HttpEntity<String> getEntity = new HttpEntity<>(headers);
+                    ResponseEntity<List> getUserResponse = restTemplate.exchange(
+                        BASE_URL + "/user/",
+                        HttpMethod.GET,
+                        getEntity,
+                        List.class
+                    );
+                    
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> usersData = (List<Map<String, Object>>) getUserResponse.getBody();
+                    if (usersData != null) {
+                        for (Map<String, Object> userDataFromList : usersData) {
+                            String userDni = userDataFromList.get("dni_usuario") != null 
+                                ? userDataFromList.get("dni_usuario").toString() 
+                                : null;
+                            if (dni.equals(userDni)) {
+                                hashId = (String) userDataFromList.get("hash_id");
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (hashId == null) {
+                    logger.warn("No se pudo obtener el hash_id del usuario creado");
+                    // Crear un hash_id temporal o lanzar excepción
+                    throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                        "Usuario creado pero no se pudo obtener el hash_id"
+                    );
+                }
+
+                logger.info("Usuario creado exitosamente con hash_id: " + hashId);
+                MethodOutcome outcome = new MethodOutcome();
+                outcome.setId(new IdType("Practitioner", hashId));
+                outcome.setCreated(true);
+                return outcome;
+            } else {
+                throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                    "Error al crear el usuario en el backend. Código: " + response.getStatusCode()
+                );
+            }
+
+        } catch (IllegalArgumentException e) {
+            logger.error("Error de validación al crear usuario: " + e.getMessage());
+            throw new ca.uhn.fhir.rest.server.exceptions.InvalidRequestException(e.getMessage());
+        } catch (Exception e) {
+            logger.error("Error al crear el usuario: " + e.getMessage(), e);
+            throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                "No se pudo crear el usuario: " + e.getMessage()
             );
         }
     }
