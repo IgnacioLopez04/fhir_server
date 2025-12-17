@@ -2,6 +2,7 @@ package com.serverfhir.provider;
 
 import ca.uhn.fhir.rest.annotation.Create;
 import ca.uhn.fhir.rest.annotation.IdParam;
+import ca.uhn.fhir.rest.annotation.Operation;
 import ca.uhn.fhir.rest.annotation.Read;
 import ca.uhn.fhir.rest.annotation.ResourceParam;
 import ca.uhn.fhir.rest.annotation.Search;
@@ -17,6 +18,9 @@ import org.hl7.fhir.r5.model.Identifier;
 import org.hl7.fhir.r5.model.ContactPoint;
 import org.hl7.fhir.r5.model.HumanName;
 import org.hl7.fhir.r5.model.DateType;
+import org.hl7.fhir.r5.model.DateTimeType;
+import org.hl7.fhir.r5.model.ValueSet;
+import org.hl7.fhir.r5.model.Enumerations;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.HttpClientErrorException;
@@ -44,6 +48,60 @@ public class PractitionerResourceProvider implements IResourceProvider {
     @Override
     public Class<Practitioner> getResourceType() {
         return Practitioner.class;
+    }
+
+    // Custom operation to get user types:
+    // GET /fhir/Practitioner/$get-user-types
+    @Operation(name = "$get-user-types", idempotent = true, type = Practitioner.class)
+    public ValueSet getUserTypesOperation(RequestDetails requestDetails) {
+        logger.info("Obteniendo lista de tipos de usuarios");
+        
+        try {
+            String token = requestDetails.getHeader("Authorization");
+            RestTemplate restTemplate = new RestTemplate();
+
+            HttpHeaders headers = new HttpHeaders();
+            if (token != null && !token.isEmpty()) {
+                headers.set("Authorization", token);
+            } else {
+                logger.error("No se encontró el token de autorización");
+                throw new RuntimeException("No se pudo consultar los tipos de usuarios. No se encontró el accessToken.");
+            }
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            String url = BASE_URL + "/user/type";
+            
+            logger.info("Consultando tipos de usuarios en: " + url);
+
+            @SuppressWarnings("rawtypes")
+            ResponseEntity<List> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    entity,
+                    List.class);
+
+            logger.info("Respuesta recibida del backend - Status: " + response.getStatusCode());
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> userTypesData = (List<Map<String, Object>>) response.getBody();
+                
+                ValueSet valueSet = convertToValueSet(userTypesData);
+                logger.info("Se encontraron " + userTypesData.size() + " tipos de usuarios");
+                return valueSet;
+            } else {
+                logger.warn("No se encontraron tipos de usuarios o error en la respuesta: " + response.getStatusCode());
+                return convertToValueSet(new ArrayList<>());
+            }
+
+        } catch (HttpClientErrorException | HttpServerErrorException e) {
+            BackendErrorHandler.handleHttpException(e);
+            return null; // Nunca se ejecutará, pero necesario para compilación
+        } catch (Exception e) {
+            logger.error("Error al consultar los tipos de usuarios: " + e.getMessage(), e);
+            throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                    "No se pudieron consultar los tipos de usuarios: " + e.getMessage());
+        }
     }
 
     @Search
@@ -472,5 +530,63 @@ public class PractitionerResourceProvider implements IResourceProvider {
         }
 
         return practitioner;
+    }
+
+    /**
+     * Convierte los datos de tipos de usuarios del backend al formato FHIR R5 ValueSet
+     */
+    private ValueSet convertToValueSet(List<Map<String, Object>> userTypesData) {
+        ValueSet valueSet = new ValueSet();
+        
+        // Metadatos del ValueSet
+        valueSet.setId("user-types");
+        valueSet.setUrl("http://mi-servidor/fhir/ValueSet/user-types");
+        valueSet.setVersion("1.0.0");
+        valueSet.setName("UserTypes");
+        valueSet.setTitle("Tipos de Usuarios");
+        valueSet.setStatus(Enumerations.PublicationStatus.ACTIVE);
+        valueSet.setExperimental(false);
+        valueSet.setDateElement(new DateTimeType(new Date()));
+        
+        // Descripción
+        valueSet.setDescription("Lista de tipos de usuarios disponibles en el sistema");
+        
+        // Composición del ValueSet
+        ValueSet.ValueSetComposeComponent compose = valueSet.getCompose();
+        ValueSet.ConceptSetComponent include = compose.addInclude();
+        include.setSystem("http://mi-servidor/fhir/CodeSystem/user-types");
+        
+        // Agregar cada tipo de usuario como concepto
+        for (Map<String, Object> userTypeData : userTypesData) {
+            ValueSet.ConceptReferenceComponent concept = include.addConcept();
+            
+            // Obtener el ID del tipo de usuario
+            Object idObj = userTypeData.get("id_tipo_usuario");
+            if (idObj != null) {
+                concept.setCode(idObj.toString());
+            }
+            
+            // Obtener el nombre/descripción del tipo de usuario
+            // Intentar diferentes campos posibles: nombre, descripcion, tipo, etc.
+            String display = null;
+            if (userTypeData.containsKey("nombre")) {
+                display = userTypeData.get("nombre").toString();
+            } else if (userTypeData.containsKey("descripcion")) {
+                display = userTypeData.get("descripcion").toString();
+            } else if (userTypeData.containsKey("tipo")) {
+                display = userTypeData.get("tipo").toString();
+            } else if (userTypeData.containsKey("name")) {
+                display = userTypeData.get("name").toString();
+            }
+            
+            if (display != null && !display.isEmpty()) {
+                concept.setDisplay(display);
+            } else if (idObj != null) {
+                // Si no hay display, usar el código como display
+                concept.setDisplay("Tipo de Usuario " + idObj.toString());
+            }
+        }
+        
+        return valueSet;
     }
 }
