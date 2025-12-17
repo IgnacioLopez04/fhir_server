@@ -210,38 +210,171 @@ public class PractitionerResourceProvider implements IResourceProvider {
     public MethodOutcome updatePractitioner(@IdParam IdType id, @ResourceParam Practitioner practitioner, RequestDetails requestDetails) {
         String hashId = id.getIdPart();
         boolean active = practitioner.getActive();
-        logger.info("Actualizando estado del usuario con hash_id: " + hashId + ", active: " + active);
+        
+        // Detectar si el recurso contiene solo el campo active o también otros campos
+        boolean hasOtherFields = practitioner.hasName() || 
+                                 practitioner.hasTelecom() || 
+                                 practitioner.hasBirthDateElement() || 
+                                 practitioner.hasIdentifier() ||
+                                 practitioner.hasExtension();
+        
+        logger.info("Actualizando usuario con hash_id: " + hashId + ", active: " + active + ", tiene otros campos: " + hasOtherFields);
 
         try {
             String token = requestDetails.getHeader("Authorization");
             RestTemplate restTemplate = new RestTemplate();
 
             HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
             if (token != null && !token.isEmpty()) {
                 headers.set("Authorization", token);
             }
 
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-            ResponseEntity<String> response;
+            // Si solo tiene el campo active, mantener comportamiento original (activar/desactivar)
+            if (!hasOtherFields) {
+                HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            if (active) {
-                // Activar usuario
-                logger.info("Activando usuario: " + hashId);
-                response = restTemplate.exchange(
-                    BASE_URL + "/user/activate/" + hashId,
-                    HttpMethod.PUT,
-                    entity,
-                    String.class
-                );
-            } else {
-                // Bloquear usuario
-                logger.info("Bloqueando usuario: " + hashId);
-                response = restTemplate.exchange(
-                    BASE_URL + "/user/" + hashId,
-                    HttpMethod.DELETE,
-                    entity,
-                    String.class
-                );
+                if (active) {
+                    // Activar usuario
+                    logger.info("Activando usuario: " + hashId);
+                    restTemplate.exchange(
+                        BASE_URL + "/user/activate/" + hashId,
+                        HttpMethod.PUT,
+                        entity,
+                        String.class
+                    );
+                } else {
+                    // Bloquear usuario
+                    logger.info("Bloqueando usuario: " + hashId);
+                    restTemplate.exchange(
+                        BASE_URL + "/user/" + hashId,
+                        HttpMethod.DELETE,
+                        entity,
+                        String.class
+                    );
+                }
+
+                logger.info("Estado del usuario actualizado exitosamente: " + hashId);
+                MethodOutcome outcome = new MethodOutcome();
+                outcome.setId(new IdType("Practitioner", hashId));
+                return outcome;
+            }
+
+            // Si tiene otros campos, extraerlos y actualizar el usuario completo
+            logger.info("Actualizando datos completos del usuario: " + hashId);
+            
+            // Extraer datos del recurso Practitioner FHIR
+            String dni = null;
+            String nombre = null;
+            String apellido = null;
+            String email = null;
+            String fechaNacimiento = null;
+            String idTipoUsuario = null;
+
+            // Extraer DNI de identifiers
+            if (practitioner.hasIdentifier()) {
+                for (Identifier identifier : practitioner.getIdentifier()) {
+                    if ("http://mi-servidor.com/fhir/dni".equals(identifier.getSystem())) {
+                        dni = identifier.getValue();
+                        break;
+                    }
+                }
+            }
+
+            // Extraer nombre y apellido
+            if (practitioner.hasName() && practitioner.getName().size() > 0) {
+                HumanName name = practitioner.getNameFirstRep();
+                if (name.hasGiven()) {
+                    nombre = name.getGivenAsSingleString();
+                }
+                if (name.hasFamily()) {
+                    apellido = name.getFamily();
+                }
+            }
+
+            // Extraer email de telecom
+            if (practitioner.hasTelecom()) {
+                for (ContactPoint telecom : practitioner.getTelecom()) {
+                    if (telecom.getSystem() == ContactPoint.ContactPointSystem.EMAIL) {
+                        email = telecom.getValue();
+                        break;
+                    }
+                }
+            }
+
+            // Extraer fecha de nacimiento
+            if (practitioner.hasBirthDateElement()) {
+                fechaNacimiento = practitioner.getBirthDateElement().getValueAsString();
+            }
+
+            // Extraer id_tipo_usuario de extensiones
+            Extension tipoUsuarioExt = practitioner.getExtensionByUrl(
+                "http://mi-servidor/fhir/StructureDefinition/id-tipo-usuario"
+            );
+            if (tipoUsuarioExt != null && tipoUsuarioExt.hasValue()) {
+                if (tipoUsuarioExt.getValue() instanceof StringType) {
+                    idTipoUsuario = ((StringType) tipoUsuarioExt.getValue()).getValue();
+                } else {
+                    idTipoUsuario = tipoUsuarioExt.getValue().toString();
+                }
+            }
+
+            // Construir payload para el backend
+            Map<String, Object> userData = new HashMap<>();
+            if (dni != null) {
+                userData.put("dni_usuario", dni);
+            }
+            if (nombre != null) {
+                userData.put("nombre_usuario", nombre);
+            }
+            if (apellido != null) {
+                userData.put("apellido_usuario", apellido);
+            }
+            if (email != null) {
+                userData.put("email", email);
+            }
+            if (fechaNacimiento != null) {
+                userData.put("fecha_nacimiento", fechaNacimiento);
+            }
+            if (idTipoUsuario != null) {
+                userData.put("id_tipo_usuario", idTipoUsuario);
+            }
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("user", userData);
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
+            logger.info("Enviando datos al backend para actualizar usuario: " + payload);
+
+            @SuppressWarnings("unchecked")
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                BASE_URL + "/user/" + hashId,
+                HttpMethod.PUT,
+                entity,
+                (Class<Map<String, Object>>) (Class<?>) Map.class
+            );
+
+            // Si también se especificó el campo active, actualizar el estado
+            if (response.getStatusCode().is2xxSuccessful()) {
+                if (active) {
+                    // Activar usuario si está especificado
+                    HttpEntity<String> activateEntity = new HttpEntity<>(headers);
+                    restTemplate.exchange(
+                        BASE_URL + "/user/activate/" + hashId,
+                        HttpMethod.PUT,
+                        activateEntity,
+                        String.class
+                    );
+                } else {
+                    // Bloquear usuario si está especificado
+                    HttpEntity<String> blockEntity = new HttpEntity<>(headers);
+                    restTemplate.exchange(
+                        BASE_URL + "/user/" + hashId,
+                        HttpMethod.DELETE,
+                        blockEntity,
+                        String.class
+                    );
+                }
             }
 
             logger.info("Usuario actualizado exitosamente: " + hashId);
