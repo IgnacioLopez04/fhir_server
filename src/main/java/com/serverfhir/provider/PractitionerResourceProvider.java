@@ -36,6 +36,8 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Date;
+import java.text.SimpleDateFormat;
+import java.text.ParseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -486,18 +488,26 @@ public class PractitionerResourceProvider implements IResourceProvider {
         if (userData.get("fecha_nacimiento") != null) {
             try {
                 Object fechaObj = userData.get("fecha_nacimiento");
+                String fechaNormalizada = null;
+                
                 if (fechaObj instanceof java.sql.Date) {
                     java.sql.Date sqlDate = (java.sql.Date) fechaObj;
-                    Date utilDate = new Date(sqlDate.getTime());
-                    practitioner.setBirthDateElement(new DateType(utilDate));
+                    // Convertir a formato YYYY-MM-DD
+                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+                    fechaNormalizada = sdf.format(sqlDate);
                 } else if (fechaObj instanceof java.sql.Timestamp) {
                     java.sql.Timestamp timestamp = (java.sql.Timestamp) fechaObj;
-                    Date utilDate = new Date(timestamp.getTime());
-                    practitioner.setBirthDateElement(new DateType(utilDate));
+                    // Convertir a formato YYYY-MM-DD (solo fecha, sin hora)
+                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+                    fechaNormalizada = sdf.format(timestamp);
                 } else {
                     // Intentar parsear como string
                     String fechaNacimiento = fechaObj.toString();
-                    practitioner.setBirthDateElement(new DateType(fechaNacimiento));
+                    fechaNormalizada = normalizeDateString(fechaNacimiento);
+                }
+                
+                if (fechaNormalizada != null && !fechaNormalizada.isEmpty()) {
+                    practitioner.setBirthDateElement(new DateType(fechaNormalizada));
                 }
             } catch (Exception e) {
                 logger.warn("Error al procesar fecha de nacimiento: " + e.getMessage());
@@ -530,6 +540,64 @@ public class PractitionerResourceProvider implements IResourceProvider {
         }
 
         return practitioner;
+    }
+
+    /**
+     * Normaliza una cadena de fecha eliminando milisegundos y convirtiéndola al formato YYYY-MM-DD
+     * que acepta FHIR DateType
+     */
+    private String normalizeDateString(String dateString) {
+        if (dateString == null || dateString.isEmpty()) {
+            return null;
+        }
+        
+        try {
+            // Si contiene milisegundos (.000 o .SSS), eliminarlos
+            if (dateString.contains(".")) {
+                // Eliminar milisegundos y zona horaria si están presentes
+                dateString = dateString.replaceAll("\\.\\d{3}Z?$", "");
+                dateString = dateString.replaceAll("\\.\\d+Z?$", "");
+            }
+            
+            // Si es una fecha con hora (formato ISO), extraer solo la parte de fecha
+            if (dateString.contains("T")) {
+                dateString = dateString.split("T")[0];
+            }
+            
+            // Si tiene zona horaria al final (Z o +HH:MM), eliminarla
+            dateString = dateString.replaceAll("[Zz]|[+-]\\d{2}:\\d{2}$", "");
+            
+            // Validar que tenga el formato YYYY-MM-DD
+            if (dateString.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                return dateString;
+            }
+            
+            // Intentar parsear con diferentes formatos
+            String[] formats = {
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                "yyyy-MM-dd",
+                "yyyy/MM/dd"
+            };
+            
+            for (String format : formats) {
+                try {
+                    SimpleDateFormat sdf = new SimpleDateFormat(format);
+                    Date date = sdf.parse(dateString);
+                    SimpleDateFormat outputFormat = new SimpleDateFormat("yyyy-MM-dd");
+                    return outputFormat.format(date);
+                } catch (ParseException e) {
+                    // Continuar con el siguiente formato
+                }
+            }
+            
+            logger.warn("No se pudo normalizar la fecha: " + dateString);
+            return null;
+            
+        } catch (Exception e) {
+            logger.warn("Error al normalizar fecha: " + dateString + " - " + e.getMessage());
+            return null;
+        }
     }
 
     /**
