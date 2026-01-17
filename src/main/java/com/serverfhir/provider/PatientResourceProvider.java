@@ -18,6 +18,10 @@ import java.util.ArrayList;
 import org.hl7.fhir.r5.model.Extension;
 import org.hl7.fhir.r5.model.StringType;
 import org.hl7.fhir.r5.model.Identifier;
+import org.hl7.fhir.r5.model.BooleanType;
+import org.hl7.fhir.r5.model.ContactPoint;
+import java.util.Date;
+import java.text.SimpleDateFormat;
 import ca.uhn.fhir.rest.annotation.Create;
 import ca.uhn.fhir.rest.api.MethodOutcome;
 import org.hl7.fhir.r5.model.ResourceType;
@@ -44,65 +48,253 @@ public class PatientResourceProvider implements IResourceProvider{
         // Validación de token ya se hace en el interceptor
         String hashId = id.getIdPart();
         RestTemplate restTemplate = new RestTemplate();
-
+    
         // Obtener el token del contexto de la petición
         String token = requestDetails.getHeader("Authorization");
         
         String url = "http://localhost:3000/api/patient/{hash_id}";
         Map<String, String> params = new HashMap<>();
         params.put("hash_id", hashId);
-
+    
         // Crear headers con el token de autorización
         HttpHeaders headers = new HttpHeaders();
         if (token != null && !token.isEmpty()) {
             headers.set("Authorization", token);
         }
-
+    
         try {
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<Map> response = restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, Map.class, params);
             Map data = response.getBody();
-
+    
+            // Validar que data no sea null
+            if (data == null || data.isEmpty()) {
+                logger.warn("Paciente no encontrado: " + hashId);
+                throw new ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException("Paciente no encontrado: " + hashId);
+            }
+    
             Patient patient = new Patient();
             patient.setId(hashId);
             patient.addIdentifier().setValue(hashId);
-
+    
             // Agregar DNI como identificador separado si existe
             if (data.get("dni_paciente") != null) {
                 patient.addIdentifier()
                     .setSystem("http://mi-servidor.com/fhir/dni")
-                    .setValue((String) data.get("dni_paciente"));
+                    .setValue(String.valueOf(data.get("dni_paciente")));
             }
-
-            patient.addName()
-                    .setFamily((String) data.get("apellido"))
-                    .addGiven((String) data.get("nombre"));
-
+    
+            // Validar que nombre y apellido existan antes de usarlos
+            String nombre = (String) data.get("nombre");
+            String apellido = (String) data.get("apellido");
+            
+            if (nombre != null && apellido != null) {
+                patient.addName()
+                        .setFamily(apellido)
+                        .addGiven(nombre);
+            }
+    
+            // Fecha de nacimiento (campo estándar FHIR)
+            if (data.get("fecha_nacimiento") != null) {
+                try {
+                    Object fechaObj = data.get("fecha_nacimiento");
+                    if (fechaObj instanceof Date) {
+                        patient.setBirthDate((Date) fechaObj);
+                    } else if (fechaObj instanceof Long) {
+                        // Timestamp de PostgreSQL
+                        Date fecha = new Date((Long) fechaObj);
+                        patient.setBirthDate(fecha);
+                    } else if (fechaObj instanceof String) {
+                        // Intentar parsear como string
+                        try {
+                            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+                            Date fecha = sdf.parse((String) fechaObj);
+                            patient.setBirthDate(fecha);
+                        } catch (Exception e) {
+                            logger.warn("No se pudo parsear fecha_nacimiento como string: " + fechaObj);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warn("Error al procesar fecha_nacimiento: " + e.getMessage());
+                }
+            }
+    
+            // Teléfono (campo estándar FHIR)
+            if (data.get("telefono") != null) {
+                try {
+                    String telefono = String.valueOf(data.get("telefono"));
+                    patient.addTelecom()
+                        .setSystem(ContactPoint.ContactPointSystem.PHONE)
+                        .setValue(telefono);
+                } catch (Exception e) {
+                    logger.warn("Error al procesar telefono: " + e.getMessage());
+                }
+            }
+    
+            // Estado activo/inactivo (campo estándar FHIR)
+            Boolean inactivo = false;
+            if (data.get("inactivo") != null) {
+                try {
+                    if (data.get("inactivo") instanceof Boolean) {
+                        inactivo = (Boolean) data.get("inactivo");
+                    } else if (data.get("inactivo") instanceof String) {
+                        inactivo = Boolean.parseBoolean((String) data.get("inactivo"));
+                    }
+                    patient.setActive(!inactivo);
+                } catch (Exception e) {
+                    logger.warn("Error al procesar inactivo: " + e.getMessage());
+                }
+            } else {
+                patient.setActive(true); // Por defecto activo
+            }
+    
             // Hash ID como extensión personalizada
             if (data.get("hash_id") != null) {
                 patient.addExtension(
-                    new Extension("http://mi-servidor/fhir/StructureDefinition/hash-id",
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/hash-id",
                         new StringType(String.valueOf(data.get("hash_id"))))
                 );
             }
-            if (data.get("hash_id_ehr") != null) {
+            
+            // Hash ID EHR - verificar tanto hash_id_ehr como hash_id_EHR (mayúsculas)
+            Object hashIdEhr = data.get("hash_id_ehr");
+            if (hashIdEhr == null) {
+                hashIdEhr = data.get("hash_id_EHR"); // Intentar con mayúsculas
+            }
+            if (hashIdEhr != null) {
                 patient.addExtension(
-                    new Extension("http://mi-servidor/fhir/StructureDefinition/hash-id-ehr",
-                        new StringType(String.valueOf(data.get("hash_id_ehr"))))
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/hash-id-ehr",
+                        new StringType(String.valueOf(hashIdEhr)))
                 );
             }
-
+    
             // Prestación como extensión personalizada
             if (data.get("prestacion") != null) {
                 patient.addExtension(
-                    new Extension("http://mi-servidor/fhir/StructureDefinition/prestacion",
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/prestacion",
                         new StringType(String.valueOf(data.get("prestacion"))))
                 );
             }
-
+            
+            // ID Prestación como extensión personalizada (para match con dropdown)
+            if (data.get("id_prestacion") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/id_prestacion",
+                        new StringType(String.valueOf(data.get("id_prestacion"))))
+                );
+            }
+            
+            // Extensiones para campos de domicilio
+            if (data.get("calle") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/calle",
+                        new StringType(String.valueOf(data.get("calle"))))
+                );
+            }
+            
+            if (data.get("barrio") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/barrio",
+                        new StringType(String.valueOf(data.get("barrio"))))
+                );
+            }
+            
+            if (data.get("id_ciudad") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/id_ciudad",
+                        new StringType(String.valueOf(data.get("id_ciudad"))))
+                );
+            }
+            
+            if (data.get("piso_departamento") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/piso_departamento",
+                        new StringType(String.valueOf(data.get("piso_departamento"))))
+                );
+            }
+            
+            // Número de domicilio (si existe en el backend)
+            if (data.get("numero") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/numero",
+                        new StringType(String.valueOf(data.get("numero"))))
+                );
+            }
+            
+            // ID Provincia
+            if (data.get("id_provincia") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/id_provincia",
+                        new StringType(String.valueOf(data.get("id_provincia"))))
+                );
+            }
+            
+            // Con quien vive
+            if (data.get("con_quien_vive") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/con_quien_vive",
+                        new StringType(String.valueOf(data.get("con_quien_vive"))))
+                );
+            }
+            
+            // ID Mutual
+            if (data.get("id_mutual") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/id_mutual",
+                        new StringType(String.valueOf(data.get("id_mutual"))))
+                );
+            }
+            
+            // Número de afiliado
+            if (data.get("numero_afiliado") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/numero_afiliado",
+                        new StringType(String.valueOf(data.get("numero_afiliado"))))
+                );
+            }
+            
+            // Ocupación actual
+            if (data.get("ocupacion_actual") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/ocupacion_actual",
+                        new StringType(String.valueOf(data.get("ocupacion_actual"))))
+                );
+            }
+            
+            // Ocupación anterior
+            if (data.get("ocupacion_anterior") != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/ocupacion_anterior",
+                        new StringType(String.valueOf(data.get("ocupacion_anterior"))))
+                );
+            }
+            
+            // Inactivo como extensión BooleanType
+            patient.addExtension(
+                new Extension("http://mi-servidor.com/fhir/StructureDefinition/inactivo",
+                    new BooleanType(inactivo))
+            );
+            
+            // Tutores (si existen, serializar como JSON)
+            if (data.get("tutores") != null) {
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    String tutoresJson = mapper.writeValueAsString(data.get("tutores"));
+                    patient.addExtension(
+                        new Extension("http://mi-servidor.com/fhir/StructureDefinition/tutores",
+                            new StringType(tutoresJson))
+                    );
+                } catch (Exception e) {
+                    logger.warn("Error al serializar tutores: " + e.getMessage());
+                }
+            }
+    
             return patient;
-
+    
+        } catch (ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException e) {
+            throw e;
         } catch (Exception e) {
+            logger.error("Error al obtener el paciente: " + e.getMessage(), e);
             throw new ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException("Paciente no encontrado: " + hashId);
         }
     }
@@ -164,7 +356,7 @@ public class PatientResourceProvider implements IResourceProvider{
                      // Hash ID como extensión personalizada
                      if (data.get("hash_id") != null) {
                          patient.addExtension(
-                             new Extension("http://mi-servidor/fhir/StructureDefinition/hash-id",
+                             new Extension("http://mi-servidor.com/fhir/StructureDefinition/hash-id",
                                  new StringType(String.valueOf(data.get("hash_id"))))
                          );
                      }
@@ -172,7 +364,7 @@ public class PatientResourceProvider implements IResourceProvider{
                      // Prestación como extensión personalizada
                      if (data.get("prestacion") != null) {
                          patient.addExtension(
-                             new Extension("http://mi-servidor/fhir/StructureDefinition/prestacion",
+                             new Extension("http://mi-servidor.com/fhir/StructureDefinition/prestacion",
                                  new StringType(String.valueOf(data.get("prestacion"))))
                          );
                      }
