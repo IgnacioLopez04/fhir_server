@@ -4,6 +4,7 @@ import ca.uhn.fhir.rest.annotation.IdParam;
 import ca.uhn.fhir.rest.annotation.Read;
 import ca.uhn.fhir.rest.annotation.ResourceParam;
 import ca.uhn.fhir.rest.annotation.Search;
+import ca.uhn.fhir.rest.annotation.Update;
 import ca.uhn.fhir.rest.server.IResourceProvider;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import org.hl7.fhir.r5.model.Patient;
@@ -27,6 +28,7 @@ import ca.uhn.fhir.rest.api.MethodOutcome;
 import org.hl7.fhir.r5.model.ResourceType;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.slf4j.Logger;
@@ -213,11 +215,15 @@ public class PatientResourceProvider implements IResourceProvider{
                 );
             }
             
-            // Número de domicilio (si existe en el backend)
-            if (data.get("numero") != null) {
+            // Número de domicilio (buscar tanto numero como numero_calle)
+            Object numero = data.get("numero");
+            if (numero == null) {
+                numero = data.get("numero_calle"); // Intentar con nombre de columna de BD
+            }
+            if (numero != null) {
                 patient.addExtension(
                     new Extension("http://mi-servidor.com/fhir/StructureDefinition/numero",
-                        new StringType(String.valueOf(data.get("numero"))))
+                        new StringType(String.valueOf(numero)))
                 );
             }
             
@@ -230,10 +236,15 @@ public class PatientResourceProvider implements IResourceProvider{
             }
             
             // Con quien vive
-            if (data.get("con_quien_vive") != null) {
+            // Buscar tanto con_quien_vive como vive_con (nombre de columna en BD)
+            Object conQuienVive = data.get("con_quien_vive");
+            if (conQuienVive == null) {
+                conQuienVive = data.get("vive_con"); // Intentar con nombre de columna de BD
+            }
+            if (conQuienVive != null) {
                 patient.addExtension(
                     new Extension("http://mi-servidor.com/fhir/StructureDefinition/con_quien_vive",
-                        new StringType(String.valueOf(data.get("con_quien_vive"))))
+                        new StringType(String.valueOf(conQuienVive)))
                 );
             }
             
@@ -369,6 +380,31 @@ public class PatientResourceProvider implements IResourceProvider{
                          );
                      }
 
+                     if (data.get("ocupacion_actual") != null) {
+                         patient.addExtension(
+                             new Extension("http://mi-servidor.com/fhir/StructureDefinition/ocupacion_actual",
+                                 new StringType(String.valueOf(data.get("ocupacion_actual"))))
+                         );
+                     }
+                     if (data.get("ocupacion_anterior") != null) {
+                         patient.addExtension(
+                             new Extension("http://mi-servidor.com/fhir/StructureDefinition/ocupacion_anterior",
+                                 new StringType(String.valueOf(data.get("ocupacion_anterior"))))
+                         );
+                     }
+                     if (data.get("id_mutual") != null) {
+                         patient.addExtension(
+                             new Extension("http://mi-servidor.com/fhir/StructureDefinition/id_mutual",
+                                 new StringType(String.valueOf(data.get("id_mutual"))))
+                         );
+                     }
+                     if (data.get("numero_afiliado") != null) {
+                         patient.addExtension(
+                             new Extension("http://mi-servidor.com/fhir/StructureDefinition/numero_afiliado",
+                                 new StringType(String.valueOf(data.get("numero_afiliado"))))
+                         );
+                     }
+
                     patients.add(patient);
                 }
             }
@@ -490,6 +526,74 @@ public class PatientResourceProvider implements IResourceProvider{
         }
     }
 
+    @Update
+    public MethodOutcome updatePatient(@IdParam IdType id, @ResourceParam Patient patient, RequestDetails requestDetails) {
+        String hashId = id.getIdPart();
+        String token = requestDetails.getHeader("Authorization");
+        if (token == null || token.isEmpty()) {
+            throw new RuntimeException("No se pudo actualizar el paciente. No se encontró el accessToken.");
+        }
+
+        String dni = null;
+        for (Identifier identifier : patient.getIdentifier()) {
+            if ("http://mi-servidor.com/fhir/dni".equals(identifier.getSystem())) {
+                dni = identifier.getValue();
+                break;
+            }
+        }
+
+        String nombre = "";
+        String segundoNombre = "";
+        if (patient.hasName() && !patient.getNameFirstRep().getGiven().isEmpty()) {
+            nombre = patient.getNameFirstRep().getGiven().get(0).getValue();
+            if (patient.getNameFirstRep().getGiven().size() > 1) {
+                segundoNombre = patient.getNameFirstRep().getGiven().get(1).getValue();
+            }
+        }
+        String apellido = patient.hasName() ? patient.getNameFirstRep().getFamily() : "";
+        if (apellido == null) apellido = "";
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("dni_paciente", dni);
+        payload.put("nombre_paciente", nombre + " " + segundoNombre);
+        payload.put("apellido_paciente", apellido);
+
+        if (patient.hasBirthDate()) {
+            payload.put("fecha_nacimiento", patient.getBirthDate().toString());
+        }
+        if (patient.hasTelecom()) {
+            String telefono = patient.getTelecomFirstRep().getValue().replaceAll("-", "");
+            try {
+                payload.put("telefono", Long.parseLong(telefono));
+            } catch (NumberFormatException e) {
+                payload.put("telefono", telefono);
+            }
+        }
+
+        processExtensions(patient, payload);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", token);
+
+        try {
+            ResponseEntity<Void> response = new RestTemplate().exchange(
+                "http://localhost:3000/api/patient/" + hashId,
+                HttpMethod.PUT,
+                new HttpEntity<>(payload, headers),
+                Void.class
+            );
+            if (response.getStatusCode().is2xxSuccessful()) {
+                MethodOutcome outcome = new MethodOutcome();
+                outcome.setId(new IdType(ResourceType.Patient.name(), hashId));
+                return outcome;
+            }
+            throw new RuntimeException("Error en la API externa: código " + response.getStatusCode());
+        } catch (Exception e) {
+            throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException("No se pudo actualizar el paciente: " + e.getMessage());
+        }
+    }
+
     private void processExtensions(Patient patient, Map<String, Object> payload) {
         if (patient.hasExtension()) {
             for (Extension extension : patient.getExtension()) {
@@ -500,10 +604,22 @@ public class PatientResourceProvider implements IResourceProvider{
                     payload.put("barrio", extension.getValue().toString());
                 } else if (url.contains("calle")) {
                     payload.put("calle", extension.getValue().toString());
+                } else if (url.contains("numero")) {
+                    payload.put("numero_calle", extension.getValue().toString());
                 } else if (url.contains("id_prestacion")) {
                     payload.put("id_prestacion", extension.getValue().toString());
                 } else if (url.contains("piso_departamento")) {
                     payload.put("piso_departamento", extension.getValue().toString());
+                } else if (url.contains("con_quien_vive")) {
+                    payload.put("vive_con", extension.getValue().toString());
+                } else if (url.contains("id_mutual")) {
+                    payload.put("id_mutual", extension.getValue().toString());
+                } else if (url.contains("numero_afiliado")) {
+                    payload.put("numero_afiliado", extension.getValue().toString());
+                } else if (url.contains("ocupacion_actual")) {
+                    payload.put("ocupacion_actual", extension.getValue().toString());
+                } else if (url.contains("ocupacion_anterior")) {
+                    payload.put("ocupacion_anterior", extension.getValue().toString());
                 }
             }
         }
