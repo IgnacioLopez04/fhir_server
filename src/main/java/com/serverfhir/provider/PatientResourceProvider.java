@@ -5,10 +5,13 @@ import ca.uhn.fhir.rest.annotation.Read;
 import ca.uhn.fhir.rest.annotation.ResourceParam;
 import ca.uhn.fhir.rest.annotation.Search;
 import ca.uhn.fhir.rest.annotation.Update;
+import ca.uhn.fhir.rest.annotation.OptionalParam;
+import ca.uhn.fhir.rest.param.StringParam;
 import ca.uhn.fhir.rest.server.IResourceProvider;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import org.hl7.fhir.r5.model.Patient;
 import org.hl7.fhir.r5.model.IdType;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +43,16 @@ public class PatientResourceProvider implements IResourceProvider{
 
     private static final Logger logger = LoggerFactory.getLogger(PatientResourceProvider.class);
 
+    @Value("${tfback.url}")
+    private String tfBackUrl;
+
+    @Value("${tfback.api.path}")
+    private String tfBackApiPath;
+
+    private String buildBackendUrl(String path) {
+        return tfBackUrl + tfBackApiPath + path;
+    }
+
     @Override
     public Class<Patient> getResourceType(){
         return Patient.class;
@@ -54,7 +67,7 @@ public class PatientResourceProvider implements IResourceProvider{
         // Obtener el token del contexto de la petición
         String token = requestDetails.getHeader("Authorization");
         
-        String url = "http://localhost:3000/api/patient/{hash_id}";
+        String url = buildBackendUrl("/patient/{hash_id}");
         Map<String, String> params = new HashMap<>();
         params.put("hash_id", hashId);
     
@@ -149,6 +162,12 @@ public class PatientResourceProvider implements IResourceProvider{
             } else {
                 patient.setActive(true); // Por defecto activo
             }
+    
+            // Inactivo como extensión BooleanType
+            patient.addExtension(
+                new Extension("http://mi-servidor.com/fhir/StructureDefinition/inactivo",
+                    new BooleanType(inactivo))
+            );
     
             // Hash ID como extensión personalizada
             if (data.get("hash_id") != null) {
@@ -311,14 +330,25 @@ public class PatientResourceProvider implements IResourceProvider{
     }
 
     @Search
-    public List<Patient> searchPatients(RequestDetails requestDetails) {
+    public List<Patient> searchPatients(
+            @OptionalParam(name = "includeInactive") StringParam includeInactiveParam,
+            RequestDetails requestDetails) {
         // Validación de token ya se hace en el interceptor
         RestTemplate restTemplate = new RestTemplate();
 
         // Obtener el token del contexto de la petición
         String token = requestDetails.getHeader("Authorization");
 
-        String url = "http://localhost:3000/api/patient";
+        // Leer el parámetro includeInactive de la request FHIR
+        boolean includeInactive = includeInactiveParam != null 
+                                  && includeInactiveParam.getValue() != null 
+                                  && !includeInactiveParam.getValue().isEmpty()
+                                  && "true".equalsIgnoreCase(includeInactiveParam.getValue());
+
+        String url = buildBackendUrl("/patient");
+        if (includeInactive) {
+            url += "?includeInactive=true";
+        }
         
         // Crear headers con el token de autorización
         HttpHeaders headers = new HttpHeaders();
@@ -364,6 +394,24 @@ public class PatientResourceProvider implements IResourceProvider{
                                  .addGiven((String) data.get("nombre"));
                      }
 
+                     // Estado activo/inactivo (campo estándar FHIR)
+                     Boolean inactivo = false;
+                     if (data.get("inactivo") != null) {
+                         try {
+                             if (data.get("inactivo") instanceof Boolean) {
+                                 inactivo = (Boolean) data.get("inactivo");
+                             } else if (data.get("inactivo") instanceof String) {
+                                 inactivo = Boolean.parseBoolean((String) data.get("inactivo"));
+                             }
+                             patient.setActive(!inactivo);
+                         } catch (Exception e) {
+                             logger.warn("Error al procesar inactivo: " + e.getMessage());
+                             patient.setActive(true); // Por defecto activo si hay error
+                         }
+                     } else {
+                         patient.setActive(true); // Por defecto activo
+                     }
+
                      // Hash ID como extensión personalizada
                      if (data.get("hash_id") != null) {
                          patient.addExtension(
@@ -404,6 +452,12 @@ public class PatientResourceProvider implements IResourceProvider{
                                  new StringType(String.valueOf(data.get("numero_afiliado"))))
                          );
                      }
+
+                     // Inactivo como extensión BooleanType
+                     patient.addExtension(
+                         new Extension("http://mi-servidor.com/fhir/StructureDefinition/inactivo",
+                             new BooleanType(inactivo))
+                     );
 
                     patients.add(patient);
                 }
@@ -511,7 +565,8 @@ public class PatientResourceProvider implements IResourceProvider{
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
 
         try {
-            ResponseEntity<Void> response = restTemplate.postForEntity("http://localhost:3000/api/patient", request, Void.class);
+            String url = buildBackendUrl("/patient");
+            ResponseEntity<Void> response = restTemplate.postForEntity(url, request, Void.class);
 
             if (response.getStatusCode() == HttpStatus.CREATED || response.getStatusCode() == HttpStatus.OK) {
                 MethodOutcome outcome = new MethodOutcome();
@@ -534,6 +589,37 @@ public class PatientResourceProvider implements IResourceProvider{
             throw new RuntimeException("No se pudo actualizar el paciente. No se encontró el accessToken.");
         }
 
+        // Determinar si se trata de una desactivación (active = false)
+        Boolean activeFlag = patient.hasActive() ? patient.getActive() : null;
+        boolean isDeactivate = (activeFlag != null && !activeFlag);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", token);
+
+        // Rama de desactivación: llamar al endpoint de borrado lógico del backend
+        if (isDeactivate) {
+            try {
+                String url = buildBackendUrl("/patient/delete/" + hashId);
+                ResponseEntity<Void> response = new RestTemplate().exchange(
+                    url,
+                    HttpMethod.DELETE,
+                    new HttpEntity<>(headers),
+                    Void.class
+                );
+                if (response.getStatusCode().is2xxSuccessful()) {
+                    MethodOutcome outcome = new MethodOutcome();
+                    outcome.setId(new IdType(ResourceType.Patient.name(), hashId));
+                    return outcome;
+                }
+                throw new RuntimeException("Error en la API externa al desactivar paciente: código " + response.getStatusCode());
+            } catch (ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException("No se pudo desactivar el paciente: " + e.getMessage());
+            }
+        }
+
+        // Rama de actualización de datos generales
         String dni = null;
         for (Identifier identifier : patient.getIdentifier()) {
             if ("http://mi-servidor.com/fhir/dni".equals(identifier.getSystem())) {
@@ -572,13 +658,13 @@ public class PatientResourceProvider implements IResourceProvider{
 
         processExtensions(patient, payload);
 
-        HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", token);
 
         try {
+            String url = buildBackendUrl("/patient/" + hashId);
             ResponseEntity<Void> response = new RestTemplate().exchange(
-                "http://localhost:3000/api/patient/" + hashId,
+                url,
                 HttpMethod.PUT,
                 new HttpEntity<>(payload, headers),
                 Void.class
