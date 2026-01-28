@@ -23,6 +23,7 @@ import org.hl7.fhir.r5.model.Bundle.BundleType;
 import org.hl7.fhir.r5.model.StringType;
 import org.hl7.fhir.r5.model.DocumentReference.DocumentReferenceContentComponent;
 import org.hl7.fhir.r5.model.DocumentReference.DocumentReferenceStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;
@@ -40,7 +41,16 @@ import org.slf4j.LoggerFactory;
 public class DocumentReferenceResourceProvider implements IResourceProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(DocumentReferenceResourceProvider.class);
-    private static final String BASE_URL = "http://localhost:3000/api";
+
+    @Value("${tfback.url}")
+    private String tfBackUrl;
+
+    @Value("${tfback.api.path}")
+    private String tfBackApiPath;
+
+    private String buildBackendUrl(String path) {
+        return tfBackUrl + tfBackApiPath + path;
+    }
 
     @Override
     public Class<DocumentReference> getResourceType() {
@@ -122,7 +132,7 @@ public class DocumentReferenceResourceProvider implements IResourceProvider {
         HttpEntity<String> request = new HttpEntity<>(headers);
 
         try {
-            String url = BASE_URL + "/file?hash_id=" + patientHashId.getValue();
+            String url = buildBackendUrl("/file") + "?hash_id=" + patientHashId.getValue();
             if (fileType != null && fileType.getValue() != null && !fileType.getValue().isEmpty()) {
                 url += "&fileType=" + fileType.getValue();
             }

@@ -21,6 +21,7 @@ import org.hl7.fhir.r5.model.Reference;
 import org.hl7.fhir.r5.model.Bundle;
 import org.hl7.fhir.r5.model.Bundle.BundleType;
 import org.hl7.fhir.r5.model.DateTimeType;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.hl7.fhir.r5.model.StringType;
 import org.springframework.web.client.RestTemplate;
@@ -40,7 +41,16 @@ import org.slf4j.LoggerFactory;
 public class ReportResourceProvider implements IResourceProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(ReportResourceProvider.class);
-    private static final String BASE_URL = "http://localhost:3000/api";
+
+    @Value("${tfback.url}")
+    private String tfBackUrl;
+
+    @Value("${tfback.api.path}")
+    private String tfBackApiPath;
+
+    private String buildBackendUrl(String path) {
+        return tfBackUrl + tfBackApiPath + path;
+    }
 
     @Override
     public Class<DiagnosticReport> getResourceType() {
@@ -152,12 +162,13 @@ public class ReportResourceProvider implements IResourceProvider {
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
 
         try {
-            logger.info("Enviando petición al backend: " + BASE_URL + "/report/create");
+            String url = buildBackendUrl("/report/create");
+            logger.info("Enviando petición al backend: " + url);
             logger.info("Payload: " + payload.toString());
             
             @SuppressWarnings("rawtypes")
             ResponseEntity<Map> response = restTemplate.postForEntity(
-                BASE_URL + "/report/create", 
+                url, 
                 request, 
                 Map.class
             );
@@ -264,7 +275,7 @@ public class ReportResourceProvider implements IResourceProvider {
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(payload, headers);
 
         try {
-            String url = BASE_URL + "/report/" + reportId + "/createAnnex";
+            String url = buildBackendUrl("/report/" + reportId + "/createAnnex");
             logger.info("Enviando petición al backend: " + url);
             logger.info("Payload: " + payload.toString());
 
@@ -357,7 +368,7 @@ public class ReportResourceProvider implements IResourceProvider {
         HttpEntity<String> request = new HttpEntity<>(headers);
 
         try {
-            String url = BASE_URL + "/report/all/" + patientHashId.getValue();
+            String url = buildBackendUrl("/report/all/" + patientHashId.getValue());
             logger.info("Consultando reportes en: " + url);
 
             @SuppressWarnings("rawtypes")
@@ -444,7 +455,7 @@ public class ReportResourceProvider implements IResourceProvider {
         HttpEntity<String> request = new HttpEntity<>(headers);
 
         try {
-            String url = BASE_URL + "/report/" + reportHashId.getValue() + "/annexes";
+            String url = buildBackendUrl("/report/" + reportHashId.getValue() + "/annexes");
             logger.info("Consultando anexos en: " + url);
 
             @SuppressWarnings("rawtypes")

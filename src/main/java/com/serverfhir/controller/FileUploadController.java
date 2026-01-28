@@ -31,7 +31,12 @@ public class FileUploadController {
     @Value("${tfback.url}")
     private String tfBackUrl;
 
-    private static final String BASE_URL = "http://localhost:3000/api";
+    @Value("${tfback.api.path}")
+    private String tfBackApiPath;
+
+    private String buildBackendUrl(String path) {
+        return tfBackUrl + tfBackApiPath + path;
+    }
 
     @PostMapping("/upload")
     public ResponseEntity<?> uploadFile(
@@ -145,7 +150,7 @@ public class FileUploadController {
 
             // Llamar al backend
             RestTemplate restTemplate = new RestTemplate();
-            String backendUrl = BASE_URL + "/file/upload?hash_id=" + hashId;
+            String backendUrl = buildBackendUrl("/file/upload") + "?hash_id=" + hashId;
 
             logger.info("Enviando archivo al backend: " + backendUrl);
 

@@ -21,6 +21,7 @@ import org.hl7.fhir.r5.model.DateType;
 import org.hl7.fhir.r5.model.DateTimeType;
 import org.hl7.fhir.r5.model.ValueSet;
 import org.hl7.fhir.r5.model.Enumerations;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.client.HttpClientErrorException;
@@ -45,7 +46,16 @@ import org.slf4j.LoggerFactory;
 public class PractitionerResourceProvider implements IResourceProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(PractitionerResourceProvider.class);
-    private static final String BASE_URL = "http://localhost:3000/api";
+
+    @Value("${tfback.url}")
+    private String tfBackUrl;
+
+    @Value("${tfback.api.path}")
+    private String tfBackApiPath;
+
+    private String buildBackendUrl(String path) {
+        return tfBackUrl + tfBackApiPath + path;
+    }
 
     @Override
     public Class<Practitioner> getResourceType() {
@@ -71,7 +81,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
             }
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
-            String url = BASE_URL + "/user/type";
+            String url = buildBackendUrl("/user/type");
             
             logger.info("Consultando tipos de usuarios en: " + url);
 
@@ -121,7 +131,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + "/user/",
+                buildBackendUrl("/user/"),
                 HttpMethod.GET,
                 entity,
                 List.class
@@ -168,7 +178,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + "/user/",
+                buildBackendUrl("/user/"),
                 HttpMethod.GET,
                 entity,
                 List.class
@@ -238,7 +248,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
                     // Activar usuario
                     logger.info("Activando usuario: " + hashId);
                     restTemplate.exchange(
-                        BASE_URL + "/user/activate/" + hashId,
+                        buildBackendUrl("/user/activate/" + hashId),
                         HttpMethod.PUT,
                         entity,
                         String.class
@@ -247,7 +257,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
                     // Bloquear usuario
                     logger.info("Bloqueando usuario: " + hashId);
                     restTemplate.exchange(
-                        BASE_URL + "/user/" + hashId,
+                        buildBackendUrl("/user/" + hashId),
                         HttpMethod.DELETE,
                         entity,
                         String.class
@@ -348,7 +358,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
 
             @SuppressWarnings("unchecked")
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                BASE_URL + "/user/" + hashId,
+                buildBackendUrl("/user/" + hashId),
                 HttpMethod.PUT,
                 entity,
                 (Class<Map<String, Object>>) (Class<?>) Map.class
@@ -360,7 +370,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
                     // Activar usuario si está especificado
                     HttpEntity<String> activateEntity = new HttpEntity<>(headers);
                     restTemplate.exchange(
-                        BASE_URL + "/user/activate/" + hashId,
+                        buildBackendUrl("/user/activate/" + hashId),
                         HttpMethod.PUT,
                         activateEntity,
                         String.class
@@ -369,7 +379,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
                     // Bloquear usuario si está especificado
                     HttpEntity<String> blockEntity = new HttpEntity<>(headers);
                     restTemplate.exchange(
-                        BASE_URL + "/user/" + hashId,
+                        buildBackendUrl("/user/" + hashId),
                         HttpMethod.DELETE,
                         blockEntity,
                         String.class
@@ -501,7 +511,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
 
             @SuppressWarnings("unchecked")
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                BASE_URL + "/user/create",
+                buildBackendUrl("/user/create"),
                 HttpMethod.POST,
                 entity,
                 (Class<Map<String, Object>>) (Class<?>) Map.class
@@ -524,7 +534,7 @@ public class PractitionerResourceProvider implements IResourceProvider {
                     // Consultar el usuario por DNI para obtener el hash_id
                     HttpEntity<String> getEntity = new HttpEntity<>(headers);
                     ResponseEntity<List> getUserResponse = restTemplate.exchange(
-                        BASE_URL + "/user/",
+                        buildBackendUrl("/user/"),
                         HttpMethod.GET,
                         getEntity,
                         List.class
