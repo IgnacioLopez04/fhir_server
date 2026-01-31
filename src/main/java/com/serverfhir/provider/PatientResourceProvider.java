@@ -53,6 +53,37 @@ public class PatientResourceProvider implements IResourceProvider{
         return tfBackUrl + tfBackApiPath + path;
     }
 
+    /**
+     * Convierte fecha_modificacion del backend (Long, Date o String) a ISO 8601 para extensión FHIR.
+     */
+    private static String formatFechaModificacionToIso(Object value) {
+        if (value == null) return null;
+        try {
+            Date date = null;
+            if (value instanceof Long) {
+                date = new Date((Long) value);
+            } else if (value instanceof Number) {
+                date = new Date(((Number) value).longValue());
+            } else if (value instanceof Date) {
+                date = (Date) value;
+            } else if (value instanceof String) {
+                String s = (String) value;
+                if (s.isEmpty()) return null;
+                try {
+                    date = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").parse(s);
+                } catch (Exception e) {
+                    date = new SimpleDateFormat("yyyy-MM-dd").parse(s);
+                }
+            }
+            if (date != null) {
+                return new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX").format(date);
+            }
+        } catch (Exception e) {
+            logger.warn("Error al formatear fecha_modificacion: " + e.getMessage());
+        }
+        return null;
+    }
+
     @Override
     public Class<Patient> getResourceType(){
         return Patient.class;
@@ -318,6 +349,15 @@ public class PatientResourceProvider implements IResourceProvider{
                     logger.warn("Error al serializar tutores: " + e.getMessage());
                 }
             }
+
+            // Última modificación (historia clínica) como extensión
+            String ultimaModificacionIso = formatFechaModificacionToIso(data.get("fecha_modificacion"));
+            if (ultimaModificacionIso != null) {
+                patient.addExtension(
+                    new Extension("http://mi-servidor.com/fhir/StructureDefinition/ultima-modificacion",
+                        new StringType(ultimaModificacionIso))
+                );
+            }
     
             return patient;
     
@@ -459,6 +499,15 @@ public class PatientResourceProvider implements IResourceProvider{
                              new BooleanType(inactivo))
                      );
 
+                     // Última modificación (historia clínica) como extensión
+                     String ultimaModificacionIso = formatFechaModificacionToIso(data.get("fecha_modificacion"));
+                     if (ultimaModificacionIso != null) {
+                         patient.addExtension(
+                             new Extension("http://mi-servidor.com/fhir/StructureDefinition/ultima-modificacion",
+                                 new StringType(ultimaModificacionIso))
+                         );
+                     }
+
                     patients.add(patient);
                 }
             }
@@ -589,9 +638,10 @@ public class PatientResourceProvider implements IResourceProvider{
             throw new RuntimeException("No se pudo actualizar el paciente. No se encontró el accessToken.");
         }
 
-        // Determinar si se trata de una desactivación (active = false)
+        // Determinar si se trata de una desactivación (active = false) o reactivación (active = true)
         Boolean activeFlag = patient.hasActive() ? patient.getActive() : null;
         boolean isDeactivate = (activeFlag != null && !activeFlag);
+        boolean isActivate = (activeFlag != null && activeFlag);
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", token);
@@ -616,6 +666,29 @@ public class PatientResourceProvider implements IResourceProvider{
                 throw e;
             } catch (Exception e) {
                 throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException("No se pudo desactivar el paciente: " + e.getMessage());
+            }
+        }
+
+        // Rama de reactivación: llamar al endpoint de activación del backend (acepta pacientes inactivos)
+        if (isActivate) {
+            try {
+                String url = buildBackendUrl("/patient/activate/" + hashId);
+                ResponseEntity<Void> response = new RestTemplate().exchange(
+                    url,
+                    HttpMethod.PUT,
+                    new HttpEntity<>(headers),
+                    Void.class
+                );
+                if (response.getStatusCode().is2xxSuccessful()) {
+                    MethodOutcome outcome = new MethodOutcome();
+                    outcome.setId(new IdType(ResourceType.Patient.name(), hashId));
+                    return outcome;
+                }
+                throw new RuntimeException("Error en la API externa al reactivar paciente: código " + response.getStatusCode());
+            } catch (ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException("No se pudo reactivar el paciente: " + e.getMessage());
             }
         }
 
