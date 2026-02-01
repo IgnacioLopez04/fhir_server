@@ -12,6 +12,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +22,8 @@ import java.util.ArrayList;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     @Value("${jwt.secret:your-secret-key-here}")
     private String jwtSecret;
@@ -50,7 +54,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
                 
             } catch (Exception e) {
-                // No establecer autenticación si hay error
+                logger.error("Error validando JWT", e);
             }
         } else {
             // Si no hay token, no establecer autenticación
