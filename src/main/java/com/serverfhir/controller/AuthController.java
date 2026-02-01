@@ -2,6 +2,8 @@ package com.serverfhir.controller;
 
 import com.serverfhir.service.JwtService;
 import io.jsonwebtoken.Claims;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +22,8 @@ import java.util.Map;
 @CrossOrigin(origins = "*")
 public class AuthController {
 
+    private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
+
     @Autowired
     private JwtService jwtService;
 
@@ -28,7 +32,7 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> loginRequest) {
-        
+        logger.info("POST /auth/login recibido");
         try {
             String credential = loginRequest.get("credential");
             
@@ -89,6 +93,7 @@ public class AuthController {
             }
             
         } catch (Exception e) {
+            logger.error("Error en /auth/login", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", "Internal server error: " + e.getMessage()));
         }
@@ -122,6 +127,7 @@ public class AuthController {
             }
             
         } catch (Exception e) {
+            logger.error("Error en /auth/validate", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", "Internal server error: " + e.getMessage()));
         }
