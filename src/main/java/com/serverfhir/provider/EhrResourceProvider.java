@@ -19,6 +19,7 @@ import org.hl7.fhir.r5.model.Reference;
 import org.hl7.fhir.r5.model.Extension;
 import org.hl7.fhir.r5.model.StringType;
 import org.hl7.fhir.r5.model.DateTimeType;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.hl7.fhir.r5.model.Bundle;
 import org.hl7.fhir.r5.model.Bundle.BundleType;
@@ -39,7 +40,16 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 public class EhrResourceProvider implements IResourceProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(EhrResourceProvider.class);
-    private static final String BASE_URL = "http://localhost:3000/api";
+
+    @Value("${tfback.url}")
+    private String tfBackUrl;
+
+    @Value("${tfback.api.path}")
+    private String tfBackApiPath;
+
+    private String buildBackendUrl(String path) {
+        return tfBackUrl + tfBackApiPath + path;
+    }
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -66,7 +76,7 @@ public class EhrResourceProvider implements IResourceProvider {
             logger.info("patientId", patientId.getValue());
 
             // Llamar al endpoint del backend para obtener la historia fisiatrica
-            String backendUrl = BASE_URL + "/ehr/hc-fisiatric/" + patientId.getValue();
+            String backendUrl = buildBackendUrl("/ehr/hc-fisiatric/" + patientId.getValue());
             logger.info("Llamando al backend con URL: " + backendUrl);
             
             HttpEntity<String> entity = new HttpEntity<>(headers);
@@ -127,7 +137,7 @@ public class EhrResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                BASE_URL + "/ehr/hc-fisiatric", 
+                buildBackendUrl("/ehr/hc-fisiatric"), 
                 HttpMethod.POST, 
                 entity, 
                 (Class<Map<String, Object>>) (Class<?>) Map.class,
@@ -186,7 +196,7 @@ public class EhrResourceProvider implements IResourceProvider {
             logger.info("Enviando datos al backend: " + backendData);
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(backendData, headers);
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                BASE_URL + "/ehr/hc-fisiatric",
+                buildBackendUrl("/ehr/hc-fisiatric"),
                 HttpMethod.POST,
                 entity,
                 (Class<Map<String, Object>>) (Class<?>) Map.class

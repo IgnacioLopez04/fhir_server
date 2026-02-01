@@ -8,6 +8,8 @@ import com.serverfhir.provider.AbmResourceProvider;
 import com.serverfhir.provider.OrganizationResourceProvider;
 import com.serverfhir.provider.ReportResourceProvider;
 import com.serverfhir.provider.EhrResourceProvider;
+import com.serverfhir.provider.DocumentReferenceResourceProvider;
+import com.serverfhir.provider.PractitionerResourceProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import java.util.List;
@@ -28,6 +30,12 @@ public class FhirServerConfig extends RestfulServer{
 
     @Autowired
     private EhrResourceProvider ehrResourceProvider;
+    
+    @Autowired
+    private DocumentReferenceResourceProvider documentReferenceResourceProvider;
+
+    @Autowired
+    private PractitionerResourceProvider practitionerResourceProvider;
 
     @Override
     protected void initialize() {
@@ -38,6 +46,6 @@ public class FhirServerConfig extends RestfulServer{
         
         // Registrar proveedores de recursos
         setResourceProviders(List.of(patientResourceProvider, abmResourceProvider, organizationResourceProvider,
-                reportResourceProvider, ehrResourceProvider));
+                reportResourceProvider, ehrResourceProvider, documentReferenceResourceProvider, practitionerResourceProvider));
     }
 }

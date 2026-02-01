@@ -10,6 +10,7 @@ import ca.uhn.fhir.rest.annotation.RequiredParam;
 import org.hl7.fhir.r5.model.Organization;
 import org.hl7.fhir.r5.model.IdType;
 import org.hl7.fhir.r5.model.CodeableConcept;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;
@@ -26,7 +27,16 @@ import org.slf4j.LoggerFactory;
 public class OrganizationResourceProvider implements IResourceProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(OrganizationResourceProvider.class);
-    private static final String BASE_URL = "http://localhost:3000/api";
+
+    @Value("${tfback.url}")
+    private String tfBackUrl;
+
+    @Value("${tfback.api.path}")
+    private String tfBackApiPath;
+
+    private String buildBackendUrl(String path) {
+        return tfBackUrl + tfBackApiPath + path;
+    }
 
     @Override
     public Class<Organization> getResourceType() {
@@ -62,7 +72,7 @@ public class OrganizationResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + endpoint,
+                buildBackendUrl(endpoint),
                 HttpMethod.GET,
                 entity,
                 List.class
@@ -122,7 +132,7 @@ public class OrganizationResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + "/abm/mutuales", 
+                buildBackendUrl("/abm/mutuales"), 
                 HttpMethod.GET, 
                 entity, 
                 List.class
@@ -172,7 +182,7 @@ public class OrganizationResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + "/abm/prestaciones", 
+                buildBackendUrl("/abm/prestaciones"), 
                 HttpMethod.GET, 
                 entity, 
                 List.class

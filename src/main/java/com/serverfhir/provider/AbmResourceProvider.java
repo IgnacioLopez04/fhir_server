@@ -8,18 +8,16 @@ import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.param.StringParam;
 import ca.uhn.fhir.rest.annotation.RequiredParam;
 import org.hl7.fhir.r5.model.Location;
-import org.hl7.fhir.r5.model.Organization;
 import org.hl7.fhir.r5.model.IdType;
 import org.hl7.fhir.r5.model.Reference;
 import org.hl7.fhir.r5.model.CodeableConcept;
-import org.hl7.fhir.r5.model.Coding;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
@@ -30,7 +28,16 @@ import org.slf4j.LoggerFactory;
 public class AbmResourceProvider implements IResourceProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(AbmResourceProvider.class);
-    private static final String BASE_URL = "http://localhost:3000/api";
+
+    @Value("${tfback.url}")
+    private String tfBackUrl;
+
+    @Value("${tfback.api.path}")
+    private String tfBackApiPath;
+
+    private String buildBackendUrl(String path) {
+        return tfBackUrl + tfBackApiPath + path;
+    }
 
     @Override
     public Class<Location> getResourceType() {
@@ -52,7 +59,7 @@ public class AbmResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + "/abm/provincias", 
+                buildBackendUrl("/abm/provincias"), 
                 HttpMethod.GET, 
                 entity, 
                 List.class
@@ -99,7 +106,7 @@ public class AbmResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + "/abm/ciudades", 
+                buildBackendUrl("/abm/ciudades"), 
                 HttpMethod.GET, 
                 entity, 
                 List.class
@@ -160,7 +167,7 @@ public class AbmResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + "/abm/ciudades/" + provinciaIdValue, 
+                buildBackendUrl("/abm/ciudades/" + provinciaIdValue), 
                 HttpMethod.GET, 
                 entity, 
                 List.class
@@ -214,7 +221,7 @@ public class AbmResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + "/abm/provincias", 
+                buildBackendUrl("/abm/provincias"), 
                 HttpMethod.GET, 
                 entity, 
                 List.class
@@ -264,7 +271,7 @@ public class AbmResourceProvider implements IResourceProvider {
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<List> response = restTemplate.exchange(
-                BASE_URL + "/abm/ciudades", 
+                buildBackendUrl("/abm/ciudades"), 
                 HttpMethod.GET, 
                 entity, 
                 List.class

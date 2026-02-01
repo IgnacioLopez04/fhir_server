@@ -26,6 +26,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/fhir/metadata").permitAll() // Permitir acceso a metadata sin token
                 .requestMatchers("/auth/**").permitAll() // Permitir acceso a endpoints de autenticación
+                .requestMatchers("/api/file/upload").permitAll() // Permitir acceso - el controlador valida el token internamente
                 .requestMatchers("OPTIONS", "/fhir/**").permitAll() // Permitir OPTIONS sin autenticación
                 .requestMatchers("/fhir/**").authenticated() // Requerir autenticación para endpoints FHIR
                 .anyRequest().authenticated()
@@ -46,6 +47,7 @@ public class SecurityConfig {
         
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/fhir/**", configuration);
+        source.registerCorsConfiguration("/api/**", configuration); // Aplicar CORS también a endpoints /api
         return source;
     }
 } 
