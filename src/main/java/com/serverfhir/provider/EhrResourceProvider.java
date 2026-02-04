@@ -19,7 +19,10 @@ import org.hl7.fhir.r5.model.Reference;
 import org.hl7.fhir.r5.model.Extension;
 import org.hl7.fhir.r5.model.StringType;
 import org.hl7.fhir.r5.model.DateTimeType;
+import org.hl7.fhir.r5.model.IntegerType;
+import org.hl7.fhir.r5.model.BooleanType;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.hl7.fhir.r5.model.Bundle;
 import org.hl7.fhir.r5.model.Bundle.BundleType;
@@ -122,6 +125,70 @@ public class EhrResourceProvider implements IResourceProvider {
             bundle.addEntry().setResource(dr);
         }
         return bundle;
+    }
+
+    // Custom operation to get historia history (all versions) by patient:
+    // GET /fhir/DiagnosticReport/$get-historia-history?patient={hashId}
+    @Operation(name = "$get-historia-history", idempotent = true, type = DiagnosticReport.class)
+    public Bundle getHistoriaHistoryOperation(
+        @OperationParam(name = "patient") StringType patientId,
+        RequestDetails requestDetails
+    ) {
+        Bundle bundle = new Bundle();
+        bundle.setType(BundleType.SEARCHSET);
+        try {
+            if (patientId == null || !patientId.hasValue()) {
+                return bundle;
+            }
+            String token = requestDetails.getHeader("Authorization");
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            if (token != null && !token.isEmpty()) {
+                headers.set("Authorization", token);
+            }
+            String backendUrl = buildBackendUrl("/ehr/hc-fisiatric/" + patientId.getValue() + "/history");
+            logger.info("Llamando al backend historial con URL: " + backendUrl);
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
+                backendUrl,
+                HttpMethod.GET,
+                entity,
+                new ParameterizedTypeReference<List<Map<String, Object>>>() {}
+            );
+            List<Map<String, Object>> history = response.getBody();
+            if (history == null || history.isEmpty()) {
+                return bundle;
+            }
+            for (Map<String, Object> row : history) {
+                if (row.get("fecha_creacion") == null && row.get("effective_from") != null) {
+                    row.put("fecha_creacion", row.get("effective_from"));
+                }
+                DiagnosticReport report = convertToDiagnosticReport(row, patientId.getValue());
+                addVersionExtensions(report, row);
+                bundle.addEntry().setResource(report);
+            }
+        } catch (Exception e) {
+            logger.error("Error en getHistoriaHistoryOperation: " + e.getMessage());
+        }
+        return bundle;
+    }
+
+    private void addVersionExtensions(DiagnosticReport report, Map<String, Object> row) {
+        if (row.get("version_number") != null) {
+            report.addExtension()
+                .setUrl("http://mi-servidor/fhir/StructureDefinition/version-number")
+                .setValue(new IntegerType(((Number) row.get("version_number")).intValue()));
+        }
+        if (row.get("effective_from") != null) {
+            report.addExtension()
+                .setUrl("http://mi-servidor/fhir/StructureDefinition/effective-from")
+                .setValue(new DateTimeType(row.get("effective_from").toString()));
+        }
+        if (row.get("is_current") != null) {
+            report.addExtension()
+                .setUrl("http://mi-servidor/fhir/StructureDefinition/is-current")
+                .setValue(new BooleanType(Boolean.TRUE.equals(row.get("is_current"))));
+        }
     }
 
     @Read
