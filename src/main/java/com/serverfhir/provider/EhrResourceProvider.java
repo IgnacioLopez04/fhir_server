@@ -748,10 +748,10 @@ public class EhrResourceProvider implements IResourceProvider {
         if (diagnosticReport.getExtension() != null) {
             for (Extension extension : diagnosticReport.getExtension()) {
                 String url = extension.getUrl();
-                if (url != null && extension.getValue() instanceof StringType) {
+                if (url != null && extension.getValue() != null) {
                     String key = url.substring(url.lastIndexOf("/") + 1);
-                    String value = ((StringType) extension.getValue()).getValue();
-                    extensionData.put(key, value);
+                    String value = extension.getValue().primitiveValue();
+                    extensionData.put(key, value != null ? value : "");
                 }
             }
         }
