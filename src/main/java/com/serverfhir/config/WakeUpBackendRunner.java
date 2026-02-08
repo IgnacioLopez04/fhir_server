@@ -39,9 +39,9 @@ public class WakeUpBackendRunner implements ApplicationRunner {
                 factory.setReadTimeout(5000);
                 RestTemplate rest = new RestTemplate(factory);
                 rest.getForEntity(healthUrl, String.class);
-                logger.debug("Wake-up request to backend succeeded: {}", healthUrl);
+                logger.info("Wake-up request to backend succeeded: {}", healthUrl);
             } catch (Exception e) {
-                logger.debug("Wake-up request to backend failed (backend may be starting): {}", e.getMessage());
+                logger.info("Wake-up request to backend failed (backend may be starting): {}", e.getMessage());
             }
         });
         executor.shutdown();
