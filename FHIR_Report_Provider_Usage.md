@@ -112,7 +112,7 @@ const reportData = {
 const result = await createReportViaFhir(reportData);
 
 if (result.success) {
-  console.log('Reporte creado:', result.reportId);
+  // result.reportId disponible
 } else {
   console.error('Error:', result.error);
 }
