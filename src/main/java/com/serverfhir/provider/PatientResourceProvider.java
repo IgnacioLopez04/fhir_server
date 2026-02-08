@@ -669,8 +669,8 @@ public class PatientResourceProvider implements IResourceProvider{
             }
         }
 
-        // Rama de reactivación: llamar al endpoint de activación del backend (acepta pacientes inactivos)
-        if (isActivate) {
+        // Rama de reactivación: solo cuando no hay datos editables (ej. birthDate); si hay birthDate es edición completa
+        if (isActivate && !patient.hasBirthDate()) {
             try {
                 String url = buildBackendUrl("/patient/activate/" + hashId);
                 ResponseEntity<Void> response = new RestTemplate().exchange(
@@ -753,32 +753,58 @@ public class PatientResourceProvider implements IResourceProvider{
         }
     }
 
+    /**
+     * Extrae el valor primitivo de una extensión (StringType, BooleanType, etc.)
+     * para enviarlo correctamente al backend. No usar getValue().toString() porque
+     * devuelve la representación del objeto, no el valor real.
+     */
+    private String getExtensionPrimitiveValue(Extension extension) {
+        if (extension == null || !extension.hasValue()) {
+            return null;
+        }
+        var value = extension.getValue();
+        if (value instanceof StringType) {
+            return ((StringType) value).getValue();
+        }
+        if (value instanceof BooleanType) {
+            return String.valueOf(((BooleanType) value).getValue());
+        }
+        if (value instanceof org.hl7.fhir.r5.model.IntegerType) {
+            return String.valueOf(((org.hl7.fhir.r5.model.IntegerType) value).getValue());
+        }
+        return null;
+    }
+
     private void processExtensions(Patient patient, Map<String, Object> payload) {
         if (patient.hasExtension()) {
             for (Extension extension : patient.getExtension()) {
                 String url = extension.getUrl();
+                String primitiveValue = getExtensionPrimitiveValue(extension);
+                if (primitiveValue == null) {
+                    continue;
+                }
                 if (url.contains("id_ciudad")) {
-                    payload.put("id_ciudad", extension.getValue().toString());
+                    payload.put("id_ciudad", primitiveValue);
                 } else if (url.contains("barrio")) {
-                    payload.put("barrio", extension.getValue().toString());
+                    payload.put("barrio", primitiveValue);
                 } else if (url.contains("calle")) {
-                    payload.put("calle", extension.getValue().toString());
-                } else if (url.contains("numero")) {
-                    payload.put("numero_calle", extension.getValue().toString());
-                } else if (url.contains("id_prestacion")) {
-                    payload.put("id_prestacion", extension.getValue().toString());
-                } else if (url.contains("piso_departamento")) {
-                    payload.put("piso_departamento", extension.getValue().toString());
-                } else if (url.contains("con_quien_vive")) {
-                    payload.put("vive_con", extension.getValue().toString());
-                } else if (url.contains("id_mutual")) {
-                    payload.put("id_mutual", extension.getValue().toString());
+                    payload.put("calle", primitiveValue);
                 } else if (url.contains("numero_afiliado")) {
-                    payload.put("numero_afiliado", extension.getValue().toString());
+                    payload.put("numero_afiliado", primitiveValue);
+                } else if (url.contains("numero")) {
+                    payload.put("numero_calle", primitiveValue);
+                } else if (url.contains("id_prestacion")) {
+                    payload.put("id_prestacion", primitiveValue);
+                } else if (url.contains("piso_departamento")) {
+                    payload.put("piso_departamento", primitiveValue);
+                } else if (url.contains("con_quien_vive")) {
+                    payload.put("vive_con", primitiveValue);
+                } else if (url.contains("id_mutual")) {
+                    payload.put("id_mutual", primitiveValue);
                 } else if (url.contains("ocupacion_actual")) {
-                    payload.put("ocupacion_actual", extension.getValue().toString());
+                    payload.put("ocupacion_actual", primitiveValue);
                 } else if (url.contains("ocupacion_anterior")) {
-                    payload.put("ocupacion_anterior", extension.getValue().toString());
+                    payload.put("ocupacion_anterior", primitiveValue);
                 }
             }
         }
