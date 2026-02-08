@@ -194,7 +194,6 @@ export const obtenerProvincias = async () => {
   try {
     const response = await useAxios.get(`${urlFhirLocation}?_type=province`);
     const processedData = processFhirResponse(response.data);
-    console.log('Provincias procesadas:', processedData);
     return processedData;
   } catch (error) {
     console.error('Error obteniendo provincias:', error);
