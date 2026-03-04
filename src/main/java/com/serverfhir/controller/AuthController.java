@@ -5,21 +5,28 @@ import io.jsonwebtoken.Claims;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseCookie;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/auth")
-@CrossOrigin(origins = "*")
 public class AuthController {
 
     private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
@@ -29,6 +36,9 @@ public class AuthController {
 
     @Value("${tfback.url}")
     private String tfBackUrl;
+
+    @Value("${cookie.secure:false}")
+    private boolean cookieSecure;
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> loginRequest) {
@@ -57,27 +67,39 @@ public class AuthController {
             
             if (response.getStatusCode().is2xxSuccessful()) {
                 Map<String, Object> responseBody = response.getBody();
-                
-                // Extraer el token del header Authorization
+
                 String authorizationHeader = response.getHeaders().getFirst("Authorization");
                 String accessToken = null;
-                
+
                 if (authorizationHeader != null && !authorizationHeader.isEmpty()) {
                     accessToken = authorizationHeader;
                 } else {
-                    // Fallback: buscar el token en el body de la respuesta
                     accessToken = (String) responseBody.get("access_token");
                 }
-                
+
+                String refreshToken = (String) responseBody.get("refresh_token");
+
                 if (accessToken != null) {
-                    // Validar el token con la misma clave secreta
                     if (jwtService.validateToken(accessToken)) {
                         Map<String, Object> result = new HashMap<>();
                         result.put("user", responseBody.get("user"));
                         result.put("access_token", accessToken);
                         result.put("message", "Login successful");
-                        
-                        return ResponseEntity.ok(result);
+
+                        HttpHeaders responseHeaders = new HttpHeaders();
+
+                        if (refreshToken != null && !refreshToken.isEmpty()) {
+                            ResponseCookie cookie = ResponseCookie.from("refresh_token", refreshToken)
+                                .httpOnly(true)
+                                .secure(cookieSecure)
+                                .path("/auth")
+                                .maxAge(Duration.ofDays(7))
+                                .sameSite("Strict")
+                                .build();
+                            responseHeaders.add(HttpHeaders.SET_COOKIE, cookie.toString());
+                        }
+
+                        return new ResponseEntity<>(result, responseHeaders, HttpStatus.OK);
                     } else {
                         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                             .body(Map.of("error", "Invalid token"));
@@ -133,11 +155,99 @@ public class AuthController {
         }
     }
 
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refresh(@CookieValue(value = "refresh_token", required = false) String refreshToken) {
+        logger.info("POST /auth/refresh recibido");
+        if (refreshToken == null || refreshToken.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of("error", "No refresh token cookie present"));
+        }
+
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String fullTfBackUrl = tfBackUrl + "/auth/refresh";
+
+            Map<String, String> requestBody = Map.of("refresh_token", refreshToken);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
+
+            ResponseEntity<Map> response = restTemplate.postForEntity(fullTfBackUrl, request, Map.class);
+
+            if (response.getStatusCode().is2xxSuccessful()) {
+                Map<String, Object> responseBody = response.getBody();
+
+                String accessToken = (String) responseBody.get("access_token");
+                String newRefreshToken = (String) responseBody.get("refresh_token");
+
+                if (accessToken == null) {
+                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("error", "No access token received from backend"));
+                }
+
+                Map<String, Object> result = new HashMap<>();
+                result.put("user", responseBody.get("user"));
+                result.put("access_token", accessToken);
+
+                HttpHeaders responseHeaders = new HttpHeaders();
+
+                if (newRefreshToken != null && !newRefreshToken.isEmpty()) {
+                    ResponseCookie cookie = ResponseCookie.from("refresh_token", newRefreshToken)
+                        .httpOnly(true)
+                        .secure(cookieSecure)
+                        .path("/auth")
+                        .maxAge(Duration.ofDays(7))
+                        .sameSite("Strict")
+                        .build();
+                    responseHeaders.add(HttpHeaders.SET_COOKIE, cookie.toString());
+                }
+
+                return new ResponseEntity<>(result, responseHeaders, HttpStatus.OK);
+            } else {
+                return ResponseEntity.status(response.getStatusCode())
+                    .body(Map.of("error", "Refresh failed"));
+            }
+        } catch (Exception e) {
+            logger.error("Error en /auth/refresh", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Internal server error: " + e.getMessage()));
+        }
+    }
+
     @PostMapping("/logout")
-    public ResponseEntity<?> logout() {
-        // En JWT stateless, el logout se maneja en el cliente
-        // Aquí podríamos implementar una blacklist de tokens si es necesario
-        return ResponseEntity.ok(Map.of("message", "Logout successful"));
+    public ResponseEntity<?> logout(@CookieValue(value = "refresh_token", required = false) String refreshToken) {
+        logger.info("POST /auth/logout recibido");
+        try {
+            if (refreshToken != null && !refreshToken.isEmpty()) {
+                RestTemplate restTemplate = new RestTemplate();
+                String fullTfBackUrl = tfBackUrl + "/auth/logout";
+
+                Map<String, String> requestBody = Map.of("refresh_token", refreshToken);
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
+
+                restTemplate.postForEntity(fullTfBackUrl, request, Map.class);
+            }
+
+            HttpHeaders responseHeaders = new HttpHeaders();
+            ResponseCookie clearCookie = ResponseCookie.from("refresh_token", "")
+                .httpOnly(true)
+                .secure(cookieSecure)
+                .path("/auth")
+                .maxAge(0)
+                .sameSite("Strict")
+                .build();
+            responseHeaders.add(HttpHeaders.SET_COOKIE, clearCookie.toString());
+
+            return new ResponseEntity<>(Map.of("message", "Logout successful"), responseHeaders, HttpStatus.OK);
+        } catch (Exception e) {
+            logger.error("Error en /auth/logout", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Internal server error: " + e.getMessage()));
+        }
     }
 
     @GetMapping("/test")

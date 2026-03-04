@@ -15,7 +15,8 @@ public class CorsConfig {
                 // Configuración mínima para evitar conflictos
                 // El filtro personalizado se encarga de CORS
                 registry.addMapping("/**")
-                        .allowedOrigins("*")
+                        // Usar patrones de origen para permitir comodines junto con credenciales
+                        .allowedOriginPatterns("*")
                         .allowedMethods("*")
                         .allowedHeaders("*");
             }

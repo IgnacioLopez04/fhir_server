@@ -48,7 +48,8 @@ public class SecurityConfig {
                 .filter(s -> !s.isEmpty())
                 .toList();
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(originsList);
+        // Usar patrones de origen en lugar de allowedOrigins para soportar comodines
+        configuration.setAllowedOriginPatterns(originsList);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
