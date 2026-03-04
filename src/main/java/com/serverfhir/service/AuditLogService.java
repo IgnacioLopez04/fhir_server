@@ -4,21 +4,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class AuditLogService {
 
     private static final Logger logger = LoggerFactory.getLogger(AuditLogService.class);
 
-    private final DataSource dataSource;
-
-    public AuditLogService(DataSource dataSource) {
-        this.dataSource = dataSource;
-    }
-
+    /**
+     * Registra un evento de auditoría como log operacional.
+     * No realiza ninguna operación de base de datos para respetar
+     * la arquitectura donde este servicio no accede directamente a la BD.
+     */
     public void saveAuditEvent(
             String userEmail,
             String method,
@@ -28,31 +26,17 @@ public class AuditLogService {
             String patientHashId,
             String action
     ) {
-        String sql = "INSERT INTO audit_log (" +
-                "user_email, service, http_method, path, ip_address, " +
-                "resource_type, patient_hash_id, action, metadata" +
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)";
+        Map<String, Object> event = new HashMap<>();
+        event.put("user_email", userEmail);
+        event.put("service", "fhir_server");
+        event.put("http_method", method);
+        event.put("path", path);
+        event.put("ip_address", ipAddress);
+        event.put("resource_type", resourceType);
+        event.put("patient_hash_id", patientHashId);
+        event.put("action", action);
 
-        String metadataJson = "{}";
-
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(sql)) {
-
-            statement.setString(1, userEmail);
-            statement.setString(2, "fhir_server");
-            statement.setString(3, method);
-            statement.setString(4, path);
-            statement.setString(5, ipAddress);
-            statement.setString(6, resourceType);
-            statement.setString(7, patientHashId);
-            statement.setString(8, action);
-            statement.setString(9, metadataJson);
-
-            statement.executeUpdate();
-        } catch (Exception e) {
-            logger.warn("Error insertando evento de auditoria en audit_log", e);
-        }
+        logger.info("FHIR_AUDIT_EVENT {}", event);
     }
 }
-
 
