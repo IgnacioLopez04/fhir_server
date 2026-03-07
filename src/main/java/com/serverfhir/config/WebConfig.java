@@ -18,11 +18,11 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(fhirAuthInterceptor)
+        registry.addInterceptor(fhirAuditInterceptor)
                 .addPathPatterns("/fhir/**")
                 .excludePathPatterns("/fhir/metadata");
 
-        registry.addInterceptor(fhirAuditInterceptor)
+        registry.addInterceptor(fhirAuthInterceptor)
                 .addPathPatterns("/fhir/**")
                 .excludePathPatterns("/fhir/metadata");
     }

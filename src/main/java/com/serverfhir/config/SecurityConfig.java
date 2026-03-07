@@ -1,5 +1,6 @@
 package com.serverfhir.config;
 
+import com.serverfhir.service.AuditLogService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,7 +24,12 @@ public class SecurityConfig {
     private String allowedOrigins;
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthFilter) throws Exception {
+    public FhirAuditFilter fhirAuditFilter(AuditLogService auditLogService) {
+        return new FhirAuditFilter(auditLogService);
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthFilter, FhirAuditFilter fhirAuditFilter) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
@@ -36,7 +42,8 @@ public class SecurityConfig {
                 .requestMatchers("/fhir/**").authenticated() // Requerir autenticación para endpoints FHIR
                 .anyRequest().authenticated()
             )
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(fhirAuditFilter, JwtAuthenticationFilter.class);
         
         return http.build();
     }
