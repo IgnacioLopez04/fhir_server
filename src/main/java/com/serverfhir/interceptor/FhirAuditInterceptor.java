@@ -64,18 +64,28 @@ public class FhirAuditInterceptor implements HandlerInterceptor {
             String resourceType = null;
             String patientHashId = null;
 
-            if (requestURI.startsWith("/fhir/Patient")) {
+            if (requestURI.contains("DiagnosticReport")) {
+                resourceType = "DiagnosticReport";
+            } else if (requestURI.startsWith("/fhir/Patient")) {
                 resourceType = "Patient";
+                String[] segments = requestURI.split("/");
+                if (segments.length >= 4) {
+                    patientHashId = segments[3];
+                }
             }
+
+            String userAgent = request.getHeader("User-Agent");
 
             auditLogService.saveAuditEvent(
                 email != null ? email : "anonymous",
                 method,
                 requestURI,
                 request.getRemoteAddr(),
+                userAgent,
                 resourceType,
                 patientHashId,
-                action
+                action,
+                null
             );
         }
 
