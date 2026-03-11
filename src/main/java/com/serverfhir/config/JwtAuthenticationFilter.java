@@ -31,35 +31,46 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        
+
         String authHeader = request.getHeader("Authorization");
-        
-        if (authHeader != null && !authHeader.isEmpty()) {
-            String token = authHeader;
-            
-            try {
-                SecretKey key = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
-                Claims claims = Jwts.parser()
-                    .verifyWith(key)
-                    .build()
-                    .parseSignedClaims(token)
-                    .getPayload();
-                String username = claims.get("email", String.class);
-                
-                if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                    UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        username, null, new ArrayList<>()
-                    );
-                    SecurityContextHolder.getContext().setAuthentication(authToken);
-                }
-                
-            } catch (Exception e) {
-                logger.error("Error validando JWT", e);
-            }
-        } else {
-            // Si no hay token, no establecer autenticación
+
+        if (authHeader == null || authHeader.isEmpty()) {
+            // Sin token: devolver 401 y cortar la cadena de filtros
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"Authorization header is required\"}");
+            response.flushBuffer();
+            return;
         }
-        
+
+        String token = authHeader;
+
+        try {
+            SecretKey key = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+            Claims claims = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+            String username = claims.get("email", String.class);
+
+            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                    username, null, new ArrayList<>()
+                );
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+            }
+
+        } catch (Exception e) {
+            // Token presente pero inválido: devolver 403 y cortar la cadena de filtros
+            logger.error("Error validando JWT", e);
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\":\"Token expired or invalid\"}");
+            response.flushBuffer();
+            return;
+        }
+
         filterChain.doFilter(request, response);
     }
 } 
