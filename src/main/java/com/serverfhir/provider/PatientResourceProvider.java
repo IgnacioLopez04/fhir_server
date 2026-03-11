@@ -28,15 +28,18 @@ import java.util.Date;
 import java.text.SimpleDateFormat;
 import ca.uhn.fhir.rest.annotation.Create;
 import ca.uhn.fhir.rest.api.MethodOutcome;
+import ca.uhn.fhir.rest.server.exceptions.ForbiddenOperationException;
 import org.hl7.fhir.r5.model.ResourceType;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.web.client.HttpStatusCodeException;
 
 @Component
 public class PatientResourceProvider implements IResourceProvider{
@@ -684,11 +687,40 @@ public class PatientResourceProvider implements IResourceProvider{
                     outcome.setId(new IdType(ResourceType.Patient.name(), hashId));
                     return outcome;
                 }
-                throw new RuntimeException("Error en la API externa al reactivar paciente: código " + response.getStatusCode());
+                // Si la API externa no responde 2xx, propagar error según código
+                HttpStatusCode status = response.getStatusCode();
+                if (status.value() == HttpStatus.FORBIDDEN.value()) {
+                    throw new ForbiddenOperationException("Acceso no autorizado para este rol");
+                }
+                if (status.value() == HttpStatus.NOT_FOUND.value()) {
+                    throw new ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException(
+                        "Paciente no encontrado: " + hashId
+                    );
+                }
+                throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                    "Error en la API externa al reactivar paciente: código " + status.value()
+                );
             } catch (ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException e) {
                 throw e;
+            } catch (ForbiddenOperationException e) {
+                throw e;
+            } catch (HttpStatusCodeException e) {
+                HttpStatusCode status = e.getStatusCode();
+                if (status.value() == HttpStatus.FORBIDDEN.value()) {
+                    throw new ForbiddenOperationException("Acceso no autorizado para este rol");
+                }
+                if (status.value() == HttpStatus.NOT_FOUND.value()) {
+                    throw new ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException(
+                        "Paciente no encontrado: " + hashId
+                    );
+                }
+                throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                    "No se pudo reactivar el paciente: " + e.getMessage()
+                );
             } catch (Exception e) {
-                throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException("No se pudo reactivar el paciente: " + e.getMessage());
+                throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                    "No se pudo reactivar el paciente: " + e.getMessage()
+                );
             }
         }
 

@@ -32,6 +32,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
+        String uri = request.getRequestURI();
+        String method = request.getMethod();
+
+        // Rutas que no deben exigir Authorization (login/refresh, metadata y preflight CORS)
+        if (uri.startsWith("/auth/")
+                || "/fhir/metadata".equals(uri)
+                || ("OPTIONS".equals(method) && uri.startsWith("/fhir/"))) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || authHeader.isEmpty()) {
