@@ -15,6 +15,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
 import java.util.List;
+import org.springframework.http.HttpMethod;
 
 @Configuration
 @EnableWebSecurity
@@ -29,7 +30,17 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthFilter, FhirAuditFilter fhirAuditFilter) throws Exception {
+    public FhirRateLimitFilter fhirRateLimitFilter(RateLimitProperties rateLimitProperties) {
+        return new FhirRateLimitFilter(rateLimitProperties);
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(
+        HttpSecurity http,
+        JwtAuthenticationFilter jwtAuthFilter,
+        FhirAuditFilter fhirAuditFilter,
+        FhirRateLimitFilter fhirRateLimitFilter
+    ) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
@@ -38,10 +49,11 @@ public class SecurityConfig {
                 .requestMatchers("/fhir/metadata").permitAll() // Permitir acceso a metadata sin token
                 .requestMatchers("/auth/**").permitAll() // Permitir acceso a endpoints de autenticación
                 .requestMatchers("/api/file/upload").permitAll() // Permitir acceso - el controlador valida el token internamente
-                .requestMatchers("OPTIONS", "/fhir/**").permitAll() // Permitir OPTIONS sin autenticación
+                .requestMatchers(HttpMethod.OPTIONS, "/fhir/**").permitAll() // Permitir OPTIONS sin autenticación
                 .requestMatchers("/fhir/**").authenticated() // Requerir autenticación para endpoints FHIR
                 .anyRequest().authenticated()
             )
+            .addFilterBefore(fhirRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterAfter(fhirAuditFilter, JwtAuthenticationFilter.class);
         
