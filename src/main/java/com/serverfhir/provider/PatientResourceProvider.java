@@ -551,6 +551,25 @@ public class PatientResourceProvider implements IResourceProvider{
             }
         }
 
+        // Log de entrada FHIR
+        String patientId = (patient.getIdElement() != null) ? patient.getIdElement().getIdPart() : null;
+        String familyName = patient.hasName() ? patient.getNameFirstRep().getFamily() : null;
+        String givenName = (patient.hasName() && !patient.getNameFirstRep().getGiven().isEmpty())
+            ? patient.getNameFirstRep().getGiven().get(0).getValue()
+            : null;
+        String birthDate = patient.hasBirthDate() ? patient.getBirthDate().toString() : null;
+        boolean hasExtensions = patient.hasExtension();
+
+        logger.info(String.format(
+            "[CREATE PATIENT] FHIR input - id=%s, dni=%s, family=%s, given=%s, birthDate=%s, hasExtensions=%b",
+            patientId,
+            dni,
+            familyName,
+            givenName,
+            birthDate,
+            hasExtensions
+        ));
+
         Map<String, Object> payload = new HashMap<>();
         payload.put("dni_paciente", dni);
         payload.put("nombre_paciente", nombre + " " + segundoNombre);
@@ -584,16 +603,16 @@ public class PatientResourceProvider implements IResourceProvider{
                     // La extensión de tutores contiene un JSON stringificado
                     try {
                         String tutoresJson = extension.getValue().toString();
-                        logger.info("JSON de tutores recibido: " + tutoresJson);
+                        logger.info("[CREATE PATIENT] JSON de tutores recibido: " + tutoresJson);
                         
                         // Parsear el JSON de tutores
                         ObjectMapper mapper = new ObjectMapper();
                         List<Map<String, Object>> tutoresList = mapper.readValue(tutoresJson, List.class);
                         payload.put("tutores", tutoresList);
-                        logger.info("Tutores procesados exitosamente: " + tutoresList.size());
-                        logger.info("Datos de tutores: " + tutoresList.toString());
+                        logger.info("[CREATE PATIENT] Tutores procesados exitosamente: " + tutoresList.size());
+                        logger.info("[CREATE PATIENT] Datos de tutores: " + tutoresList.toString());
                     } catch (Exception e) {
-                        logger.error("Error al procesar tutores: " + e.getMessage(), e);
+                        logger.error("[CREATE PATIENT] Error al procesar tutores: " + e.getMessage(), e);
                         payload.put("tutores", new ArrayList<>());
                     }
                     break;
@@ -602,7 +621,7 @@ public class PatientResourceProvider implements IResourceProvider{
         }
         
         // Log del payload final
-        logger.info("Payload final enviado al backend: " + payload.toString());
+        logger.info("[CREATE PATIENT] Payload backend: " + payload.toString());
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -625,11 +644,24 @@ public class PatientResourceProvider implements IResourceProvider{
                 outcome.setId(new IdType(ResourceType.Patient.name(), patient.getIdElement().getIdPart()));
                 return outcome;
             } else {
+                logger.error("[CREATE PATIENT] Error en la API externa: código " + response.getStatusCode());
                 throw new RuntimeException("Error en la API externa: código " + response.getStatusCode());
             }
 
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            String responseBody = e.getResponseBodyAsString();
+            logger.error(
+                "[CREATE PATIENT] Error backend: status=" + e.getStatusCode() + ", body=" + responseBody,
+                e
+            );
+            throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                "No se pudo crear el paciente: " + e.getStatusCode() + " - " + responseBody
+            );
         } catch (Exception e) {
-            throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException("No se pudo crear el paciente: " + e.getMessage());
+            logger.error("[CREATE PATIENT] Error inesperado al crear paciente", e);
+            throw new ca.uhn.fhir.rest.server.exceptions.InternalErrorException(
+                "No se pudo crear el paciente: " + e.getMessage()
+            );
         }
     }
 
