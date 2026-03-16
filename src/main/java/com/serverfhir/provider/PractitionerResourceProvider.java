@@ -657,10 +657,10 @@ public class PractitionerResourceProvider implements IResourceProvider {
             }
         }
 
-        // Estado activo (invertido: active = !inactivo)
+        // Estado activo efectivo: activo solo si NO está inactivo y NO está expirado
+        boolean inactivo = false;
         if (userData.get("inactivo") != null) {
             Object inactivoObj = userData.get("inactivo");
-            boolean inactivo = false;
             if (inactivoObj instanceof Boolean) {
                 inactivo = (Boolean) inactivoObj;
             } else if (inactivoObj instanceof Number) {
@@ -668,11 +668,38 @@ public class PractitionerResourceProvider implements IResourceProvider {
             } else if (inactivoObj instanceof String) {
                 inactivo = Boolean.parseBoolean((String) inactivoObj);
             }
-            practitioner.setActive(!inactivo);
-        } else {
-            // Por defecto, si no se especifica, se considera activo
-            practitioner.setActive(true);
         }
+
+        boolean notExpired = true; // por defecto, si no hay fecha de expiración, se considera no expirado
+        Object expiredAtObj = userData.get("expired_at");
+        if (expiredAtObj != null) {
+            try {
+                Date now = new Date();
+                Date expiredAtDate = null;
+
+                if (expiredAtObj instanceof java.sql.Timestamp) {
+                    expiredAtDate = new Date(((java.sql.Timestamp) expiredAtObj).getTime());
+                } else if (expiredAtObj instanceof java.sql.Date) {
+                    expiredAtDate = new Date(((java.sql.Date) expiredAtObj).getTime());
+                } else {
+                    String expiredAtStr = expiredAtObj.toString();
+                    // Reutilizar la lógica de normalización para obtener solo la fecha/hora válida
+                    String normalized = normalizeDateString(expiredAtStr);
+                    if (normalized != null) {
+                        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+                        expiredAtDate = sdf.parse(normalized);
+                    }
+                }
+
+                if (expiredAtDate != null) {
+                    notExpired = expiredAtDate.after(now);
+                }
+            } catch (Exception e) {
+                logger.warn("Error al procesar fecha de expiración expired_at: " + e.getMessage());
+            }
+        }
+
+        practitioner.setActive(!inactivo && notExpired);
 
         // id_tipo_usuario como extensión personalizada
         if (userData.get("id_tipo_usuario") != null) {
